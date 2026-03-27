@@ -92,6 +92,29 @@ head.remove = remove
 arms.remove = remove
 legs.remove = remove
 
+local function disable_part(self)
+    self.disabled = true
+    self._settled = false
+end
+local function enable_part(self)
+    self.disabled = false
+    self._settled = false
+end
+
+lean.disable = disable_part
+head.disable = disable_part
+arms.disable = disable_part
+legs.disable = disable_part
+
+function lean:enable()
+    enable_part(self)
+    self.rot_vel = base
+    self.pivot_vel = base
+end
+head.enable = enable_part
+arms.enable = enable_part
+legs.enable = enable_part
+
 local torso_count = 0
 local head_count = 0
 local arm_count = 0
@@ -127,43 +150,57 @@ function jl3.lean:new(mode, part, speed, pivot, enabled, constraints, strength, 
     self._rot = base
     self.r_rot = base
     self.dobreathe = dobreathe == nil and true or dobreathe
+    self.disabled = false
+    self._settled = false
     table.insert(jl3.active, self)
     torso_count = torso_count + 1
     return self
 end
 
 function lean:tick()
-    if not self.enabled then return end
+    if not self.enabled or self._settled then
+        return end
     self._rot = self.rot
     local s = jl3.settings
-    local zRot = raw.y * jl3.settings._zstr * leanScale
-    local calc
-    if self.mode == MODE_STRENGTH then
-        calc = vec3(raw.x * targetVel, raw.y, raw.z + zRot) * self.strength * leanScale
-    elseif self.mode == MODE_CLAMPED then
-        calc = vec3(
-            clamp(raw.x, self.constraints[1][1], self.constraints[1][2]) * targetVel,
-            clamp(raw.y, self.constraints[2][1], self.constraints[2][2]) * targetVel,
-            zRot
-        ) * leanScale
-    elseif self.mode == MODE_BOTH then
-        calc = vec3(
-            clamp(raw.x, self.constraints[1][1], self.constraints[1][2]) * targetVel,
-            clamp(raw.y, self.constraints[2][1], self.constraints[2][2]) * targetVel,
-            zRot
-        ) * self.strength * leanScale
+    local rotTarget, pivotTarget
+    if self.disabled then
+        rotTarget = base
+        pivotTarget = self.base_pivot
+    else
+        local zRot = raw.y * s._zstr * leanScale
+        local calc
+        if self.mode == MODE_STRENGTH then
+            calc = vec3(raw.x * targetVel, raw.y, raw.z + zRot) * self.strength * leanScale
+        elseif self.mode == MODE_CLAMPED then
+            calc = vec3(
+                clamp(raw.x, self.constraints[1][1], self.constraints[1][2]) * targetVel,
+                clamp(raw.y, self.constraints[2][1], self.constraints[2][2]) * targetVel,
+                zRot
+            ) * leanScale
+        elseif self.mode == MODE_BOTH then
+            calc = vec3(
+                clamp(raw.x, self.constraints[1][1], self.constraints[1][2]) * targetVel,
+                clamp(raw.y, self.constraints[2][1], self.constraints[2][2]) * targetVel,
+                zRot
+            ) * self.strength * leanScale
+        end
+        local turnZ = clamp(turnLean * s.turnLeanStrength, -s.turn_z, s.turn_z)
+        pivotTarget = self.base_pivot + (sneaking and (vanilla_model.BODY:getOriginPos() * 1.875) or base)
+        rotTarget = (calc * (sneaking and vec3(0.1, 1, 1) or 1)) + (self.dobreathe and breathe or base) + vec3(0, 0, turnZ)
     end
-
-    local turnZ = clamp(turnLean * s.turnLeanStrength, -s.turn_z, s.turn_z)
-    local pivotTarget = self.base_pivot + (sneaking and (vanilla_model.BODY:getOriginPos() * 1.875) or base)
-    local rotTarget = (calc * (sneaking and vec3(0.1, 1, 1) or 1)) + (self.dobreathe and breathe or base) + vec3(0, 0, turnZ)
     self._pivot = self.pivot
     self.pivot, self.pivot_vel = spring(self.pivot, pivotTarget, self.pivot_vel, self.speed, s.leanDamping)
     self.rot, self.rot_vel = spring(self.rot, rotTarget, self.rot_vel, self.speed, s.leanDamping)
+    if self.disabled and self.rot:length() < 0.01 and self.rot_vel:length() < 0.01 then
+        self.rot, self.rot_vel = base, base
+        self.pivot, self.pivot_vel = self.base_pivot, base
+        self._settled = true
+        self.part:setOffsetRot(base):setPivot(self.base_pivot)
+    end
 end
 
 function lean:render(delta)
-    if not self.enabled then return end
+    if not self.enabled or self._settled then return end
     self.r_rot = lerp(self._rot, self.rot, delta)
     self.f_pivot = lerp(self._pivot, self.pivot, delta)
     self.part:setPivot(self.f_pivot):setOffsetRot(self.r_rot)
@@ -193,38 +230,49 @@ function jl3.head:new(mode, part, speed, enabled, constraints, strength, lean_ta
     self.constraints = constraints
     self.strength = strength
     self.gazeCompat = jl3.settings.gazeCompat
+    self.disabled = false
+    self._settled = false
     table.insert(jl3.active, self)
     head_count = head_count + 1
     return self
 end
 
 function head:tick()
-    if not self.enabled then return end
-    vHead:setRot(0, 0, 0)
+    if not self.enabled or self._settled then return end
     self.lean = self.lean_ref and self.lean_ref.r_rot and -self.lean_ref.r_rot or base
     self._rot = self.rot
-    local headBob = breathe.y * 0.3
     local calc
-    if self.mode == MODE_STRENGTH then
-        calc = (raw + vec3(headBob, 0, raw.y * 0.125) + self.lean) * self.strength
-    elseif self.mode == MODE_CLAMPED then
-        calc = vec3(
-            clamp(raw.x, self.constraints[1][1], self.constraints[1][2]) + headBob,
-            clamp(raw.y, self.constraints[2][1], self.constraints[2][2]),
-            raw.y * 0.125
-        ) + self.lean
-    elseif self.mode == MODE_BOTH then
-        calc = (vec3(
-            clamp(raw.x, self.constraints[1][1], self.constraints[1][2]) + headBob,
-            clamp(raw.y, self.constraints[2][1], self.constraints[2][2]),
-            raw.y * 0.125
-        ) + self.lean) * self.strength
+    if self.disabled then
+        calc = base
+    else
+        vHead:setRot(0, 0, 0)
+        local headBob = breathe.y * 0.3
+        if self.mode == MODE_STRENGTH then
+            calc = (raw + vec3(headBob, 0, raw.y * 0.125) + self.lean) * self.strength
+        elseif self.mode == MODE_CLAMPED then
+            calc = vec3(
+                clamp(raw.x, self.constraints[1][1], self.constraints[1][2]) + headBob,
+                clamp(raw.y, self.constraints[2][1], self.constraints[2][2]),
+                raw.y * 0.125
+            ) + self.lean
+        elseif self.mode == MODE_BOTH then
+            calc = (vec3(
+                clamp(raw.x, self.constraints[1][1], self.constraints[1][2]) + headBob,
+                clamp(raw.y, self.constraints[2][1], self.constraints[2][2]),
+                raw.y * 0.125
+            ) + self.lean) * self.strength
+        end
     end
-    self.rot = slerp(self.rot, calc or base, self.speed, curves[jl3.settings.headCurve])
+    self.rot = slerp(self.rot, calc, self.speed, curves[jl3.settings.headCurve])
+    if self.disabled and self.rot:length() < 0.05 then
+        self.rot = base
+        self._settled = true
+        self.part:setOffsetRot(base)
+    end
 end
 
 function head:render(delta)
-    if not self.enabled then return end
+    if not self.enabled or self._settled then return end
     self.r_rot = lerp(self._rot, self.rot, delta)
     if self.gazeCompat then
         self.part:setOffsetRot(vHead:getOffsetRot() and vHead:getOffsetRot() or vec(0,0,0) + self.r_rot)
@@ -249,34 +297,46 @@ function jl3.arms:new(side, part, speed, enabled, strength)
     self.enabled = enabled
     self.rot = base
     self._rot = base
+    self.disabled = false
+    self._settled = false
     table.insert(jl3.active, self)
     arm_count = arm_count + 1
     return self
 end
 
 function arms:tick()
-    if not self.enabled then return end
-    local armBreathe = breathe.x * 0.15
+    if not self.enabled or self._settled then return end
     local calc
-    if self.side == LEFT then
-        if sneaking then
-            calc = vec3((-raw.x * self.strength.x * 0.5) + armBreathe, 0, 0)
-        else
-            calc = vec3(((-raw.x * self.strength.x + -(raw.y * self.strength.z)) * targetVel) + armBreathe, 0, 0)
+    if self.disabled then
+        calc = base
+    else
+        local armBreathe = breathe.x * 0.15
+        if self.side == LEFT then
+            if sneaking then
+                calc = vec3((-raw.x * self.strength.x * 0.5) + armBreathe, 0, 0)
+            else
+                calc = vec3(((-raw.x * self.strength.x + -(raw.y * self.strength.z)) * targetVel) + armBreathe, 0, 0)
+            end
+        elseif self.side == RIGHT then
+            if sneaking then
+                calc = vec3((-raw.x * self.strength.x * 0.5) - armBreathe, 0, 0)
+            else
+                calc = vec3(((-raw.x * self.strength.x + (raw.y * self.strength.z)) * targetVel) - armBreathe, 0, 0)
+            end
         end
-    elseif self.side == RIGHT then
-        if sneaking then
-            calc = vec3((-raw.x * self.strength.x * 0.5) - armBreathe, 0, 0)
-        else
-            calc = vec3(((-raw.x * self.strength.x + (raw.y * self.strength.z)) * targetVel) - armBreathe, 0, 0)
-        end
+        calc = calc * leanScale
     end
     self._rot = self.rot
-    self.rot = slerp(self.rot, (calc or base) * leanScale, self.speed, curves[jl3.settings.armCurve])
+    self.rot = slerp(self.rot, calc, self.speed, curves[jl3.settings.armCurve])
+    if self.disabled and self.rot:length() < 0.05 then
+        self.rot = base
+        self._settled = true
+        self.part:setOffsetRot(base)
+    end
 end
 
 function arms:render(delta)
-    if not self.enabled then return end
+    if not self.enabled or self._settled then return end
     self.part:setOffsetRot(lerp(self._rot, self.rot, delta))
 end
 
@@ -298,57 +358,74 @@ function jl3.legs:new(side, part, speed, enabled, strength)
     self._rot = base
     self.pos = base
     self._pos = base
+    self.disabled = false
+    self._settled = false
     table.insert(jl3.active, self)
     leg_count = leg_count + 1
     return self
 end
 
 function legs:tick()
-    if not self.enabled then return end
-    local crX, crZ = 0, 0
-    local calPosX, calPosZ = 0, 0
-    local sX, sZ = self.strength.x, self.strength.z
-    local lbx, lbz = breathe.x * 0.2, breathe.z * 0.5
-    local x_damp = clamp(1 - abs(raw.x) / 90, 0, 1)
-    local dY = raw_Y * x_damp
-    if self.side == LEFT then
-        if sneaking then
-            crX = (dY * 0.0714285) + lbx
-            crZ = (-(dY * sZ)) + lbz
-            calPosX = (dY * sZ) * 0.25
-            calPosZ = dY * 0.025
-        else
-            crX = ((dY * 0.0714285) * targetVel) + lbx
-            crZ = lbz
-            calPosZ = dY * 0.025
+    if not self.enabled or self._settled then return end
+    local _crX, _crZ, _calPosX, _calPosZ = 0, 0, 0, 0
+    if not self.disabled then
+        local crX, crZ = 0, 0
+        local calPosX, calPosZ = 0, 0
+        local sX, sZ = self.strength.x, self.strength.z
+        local lbx, lbz = breathe.x * 0.2, breathe.z * 0.5
+        local x_damp = clamp(1 - abs(raw.x) / 90, 0, 1)
+        local dY = raw_Y * x_damp
+        if self.side == LEFT then
+            if sneaking then
+                crX = (dY * 0.0714285) + lbx
+                crZ = (-(dY * sZ)) + lbz
+                calPosX = (dY * sZ) * 0.25
+                calPosZ = dY * 0.025
+            else
+                crX = ((dY * 0.0714285) * targetVel) + lbx
+                crZ = lbz
+                calPosZ = dY * 0.025
+            end
+        elseif self.side == RIGHT then
+            if sneaking then
+                crX = (-(dY * 0.0714285)) - lbx
+                crZ = (-(dY * sZ)) - lbz
+                calPosX = (dY * sZ) * 0.25
+                calPosZ = -(dY * 0.025)
+            else
+                crX = ((-(dY * 0.0714285)) * targetVel) - lbx
+                crZ = -lbz
+                calPosZ = -(dY * 0.025)
+            end
         end
-    elseif self.side == RIGHT then
-        if sneaking then
-            crX = (-(dY * 0.0714285)) - lbx
-            crZ = (-(dY * sZ)) - lbz
-            calPosX = (dY * sZ) * 0.25
-            calPosZ = -(dY * 0.025)
-        else
-            crX = ((-(dY * 0.0714285)) * targetVel) - lbx
-            crZ = -lbz
-            calPosZ = -(dY * 0.025)
-        end
+        _crX, _crZ = crX * sX * leanScale, crZ * leanScale
+        _calPosX, _calPosZ = calPosX * sX * leanScale, calPosZ * leanScale
     end
-    local _crX, _crZ = crX * sX * leanScale, crZ * leanScale
-    local _calPosX, _calPosZ = calPosX * sX * leanScale, calPosZ * leanScale
     self._rot = self.rot
     self._pos = self.pos
     local curve = curves[jl3.settings.legCurve]
     self.rot = slerp(self.rot, vec3(_crX, 0, _crZ), self.speed, curve)
     self.pos = slerp(self.pos, vec3(_calPosX, 0, _calPosZ), self.speed, curve)
+    if self.disabled and self.rot:length() < 0.05 and self.pos:length() < 0.01 then
+        self.rot, self.pos = base, base
+        self._settled = true
+        self.part:setOffsetRot(base):setPos(base)
+    end
 end
 
 function legs:render(delta)
-    if not self.enabled then return end
+    if not self.enabled or self._settled then return end
     self.part:setPos(lerp(self._pos, self.pos, delta))
     self.part:setOffsetRot(lerp(self._rot, self.rot, delta))
 end
 
+
+function jl3:disable()
+    for i = 1, #self.active do self.active[i]:disable() end
+end
+function jl3:enable()
+    for i = 1, #self.active do self.active[i]:enable() end
+end
 
 function events.tick()
     if not spring then
