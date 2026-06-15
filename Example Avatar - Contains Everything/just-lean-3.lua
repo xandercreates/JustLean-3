@@ -24,6 +24,7 @@ local targetVel = 1
 local breathe = base
 local turnLean = 0
 local leanScale = 1.0
+local offset = vanilla_model.HEAD:getOffsetRot() or vec(0,0,0)
 
 local function wrap(val)
     return ((val + 180) % 360) - 180
@@ -111,6 +112,11 @@ function lean:enable()
     self.rot_vel = base
     self.pivot_vel = base
 end
+
+function lean:disable()
+    disable_part(self)
+end
+
 head.enable = enable_part
 arms.enable = enable_part
 legs.enable = enable_part
@@ -186,7 +192,7 @@ function lean:tick()
         end
         local turnZ = clamp(turnLean * s.turnLeanStrength, -s.turn_z, s.turn_z)
         pivotTarget = self.base_pivot + (sneaking and (vanilla_model.BODY:getOriginPos() * 1.875) or base)
-        rotTarget = (calc * (sneaking and vec3(0.1, 1, 1) or 1)) + (self.dobreathe and breathe or base) + vec3(0, 0, turnZ)
+        rotTarget = (calc * (sneaking and vec3(0.1, 0.5, 0.1) or 1)) + (self.dobreathe and breathe or base) + vec3(0, 0, turnZ)
     end
     self._pivot = self.pivot
     self.pivot, self.pivot_vel = spring(self.pivot, pivotTarget, self.pivot_vel, self.speed, s.leanDamping)
@@ -275,7 +281,7 @@ function head:render(delta)
     if not self.enabled or self._settled then return end
     self.r_rot = lerp(self._rot, self.rot, delta)
     if self.gazeCompat then
-        self.part:setOffsetRot(vHead:getOffsetRot() and vHead:getOffsetRot() or vec(0,0,0) + self.r_rot)
+        self.part:setOffsetRot((vHead:getOffsetRot() or base) + self.r_rot)
     else
         self.part:setRot(self.r_rot)
     end
@@ -451,11 +457,13 @@ function events.tick()
         leanScale = 1.0
     end
 
+    offset = vanilla_model.HEAD:getOffsetRot() or vec(0,0,0)
+
     raw = vec3(
         wrap(headRot.x),
         wrap(headRot.y),
         wrap(headRot.z)
-    )
+    ) + offset
 
     raw_Y = wrap(headRot.y)
     targetVel = math.max(0.3, 1.0 - (speed * 0.16))
