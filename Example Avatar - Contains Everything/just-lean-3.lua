@@ -1,5 +1,7 @@
--- JustLean3
+-- Just Lean 3
 -- ease.lua is actually needed this time
+
+--DEV ENV: Figura 0.1.6, LuaJ-core/LuaJ-jse 3.0.8 (Lua 5.2)
 
 ---@class JustLean3
 local jl3 = {}
@@ -49,6 +51,7 @@ jl3.lean = {}
 jl3.head = {}
 jl3.arms = {}
 jl3.legs = {}
+jl3.extras = {}
 
 -- tweak any of these at runtime. go wild i guess :P
 jl3.settings = {
@@ -72,10 +75,47 @@ function jl3:getActiveTable()
 end
 
 -- metatables
-local lean = {}; lean.__index = lean
+local lean = {}; lean.__index = lean-- JustLean3
+-- ease.lua is actually needed this time
+
+---@class JustLean3
+local jl3 = {}
+
+jl3.active = {} -- everything that's currently updating goes here
+
+local raw_Y = 0
+local sin, cos, lerp, clamp, abs = math.sin, math.cos, math.lerp, math.clamp, math.abs
+local spring --set after ease.lua is loaded
+local slerp
+local curves
+local vec3 = vectors.vec3
+local vHead = vanilla_model.HEAD
+local base = vec3(0, 0, 0)
+
+local raw = base
+local sneaking = false
+local riding = false
+local swim = false
+local climbing = false
+local targetVel = 1
+local breathe = base
+local turnLean = 0
+local leanScale = 1.0
+local offset = vanilla_model.HEAD:getOffsetRot() or vec(0,0,0)
+
+local function wrap(val)
+    return ((val + 180) % 360) - 180
+end
+
+---@alias ValidModes
+---|1 STRENGTH
+---|2 CLAMPED
+---|3 BOTH
+
 local head = {}; head.__index = head
 local arms = {}; arms.__index = arms
 local legs = {}; legs.__index = legs
+local extras = {}; extras.__index = extras
 
 -- call :remove() on any part to pull it out of the update loop
 local function remove(self)
@@ -92,13 +132,16 @@ lean.remove = remove
 head.remove = remove
 arms.remove = remove
 legs.remove = remove
+extras.remove = remove
 
 local function disable_part(self)
     self.disabled = true
     self._settled = false
+    self.enabled = false
 end
 local function enable_part(self)
     self.disabled = false
+    self.enabled = true
     self._settled = false
 end
 
@@ -106,6 +149,7 @@ lean.disable = disable_part
 head.disable = disable_part
 arms.disable = disable_part
 legs.disable = disable_part
+extras.disable = disable_part
 
 function lean:enable()
     enable_part(self)
@@ -114,17 +158,21 @@ function lean:enable()
 end
 
 function lean:disable()
+    self.rot = vec(0,0,0)
     disable_part(self)
+
 end
 
 head.enable = enable_part
 arms.enable = enable_part
 legs.enable = enable_part
+extras.enable = enable_part
 
 local torso_count = 0
 local head_count = 0
 local arm_count = 0
 local leg_count = 0
+local extras_count = 0
 
 --leaning, the thing you're likely here for.
 
@@ -217,6 +265,42 @@ end
 ---@param part ModelPart
 ---@param speed number -- interpolation speed
 ---@param enabled boolean
+-- JustLean3
+-- ease.lua is actually needed this time
+
+---@class JustLean3
+local jl3 = {}
+
+jl3.active = {} -- everything that's currently updating goes here
+
+local raw_Y = 0
+local sin, cos, lerp, clamp, abs = math.sin, math.cos, math.lerp, math.clamp, math.abs
+local spring --set after ease.lua is loaded
+local slerp
+local curves
+local vec3 = vectors.vec3
+local vHead = vanilla_model.HEAD
+local base = vec3(0, 0, 0)
+
+local raw = base
+local sneaking = false
+local riding = false
+local swim = false
+local climbing = false
+local targetVel = 1
+local breathe = base
+local turnLean = 0
+local leanScale = 1.0
+local offset = vanilla_model.HEAD:getOffsetRot() or vec(0,0,0)
+
+local function wrap(val)
+    return ((val + 180) % 360) - 180
+end
+
+---@alias ValidModes
+---|1 STRENGTH
+---|2 CLAMPED
+---|3 BOTH
 ---@param constraints table|nil -- {{xMin,xMax},{yMin,yMax}}, nil/unused if on mode 1
 ---@param strength number|Vector3|nil --nil/unused if on mode 2
 ---@param lean_table table|nil -- pass your torso lean here so the head compensates
@@ -423,6 +507,85 @@ function legs:render(delta)
     if not self.enabled or self._settled then return end
     self.part:setPos(lerp(self._pos, self.pos, delta))
     self.part:setOffsetRot(lerp(self._rot, self.rot, delta))
+end
+
+---Influence a Selected Modelpart with a JL3 Object
+---@param mode number|ValidModes
+---@param part ModelPart
+---@param speed number
+---@param influence table|JustLean3
+---@param strength_rot? number|Vector3|nil --can set to nil if on CLAMPED (2)
+---@param strength_pos? number|Vector3|nil --can set to nil if on CLAMPED (2)
+---@param constraints_rot? table|nil --this one takes 3 entries for x, y, and z. can set to nil if on STRENGTH (1)
+---@param constraints_pos? table|nil --this one takes 3 entries for x, y, and z. can set to nil if on STRENGTH (1)
+---@param pivot Vector3
+---@param enabled boolean
+function jl3.extras:new(mode, part, speed, influence, strength_rot, strength_pos, constraints_rot, constraints_pos, pivot, enabled)
+    local self = setmetatable({}, extras)
+    self.type = "INFLUENCE"
+    self.enabled = enabled or true
+    self.part = part
+    self.mode = mode
+    self.speed = speed
+    self.mode_string = mode == 1 and "STRENGTH" or mode == 2 and "CLAMPED" or mode == 3 and "BOTH"
+    self.inf_table = influence
+    self.strength_rot = strength_rot
+    self.strength_pos = strength_pos
+    self.constraints_rot = constraints_rot
+    self.constraints_pos = constraints_pos
+    self.id = extras_count + 1
+    self.rot = base
+    self._rot = base
+    self.pos = base
+    self._pos = base
+    self.pivot = type(pivot) == "Vector3" and pivot or self.part:getPivot()
+    extras_count = extras_count + 1
+    table.insert(jl3.active, self)
+    return self
+end
+
+function extras:tick()
+    if not self.enabled then return end
+    local this = self.inf_table
+    local calc
+    local calc_p
+    local ipos = this.pos and this.pos or base
+    self._rot = self.rot
+    self._pos = self.pos
+    local s_r = self.strength_rot * (player:isCrouching() and 0.5 or 1)
+    local s_p = self.strength_pos * (player:isCrouching() and 0.5 or 1)
+    if self.mode == 1 then
+        calc = this.rot * s_r
+        calc_p = ipos * s_p
+    elseif self.mode == 2 then
+        calc = vec3(
+            clamp(this.rot.x, self.constraints_rot[1][1], self.constraints_rot[2][1]),
+            clamp(this.rot.y, self.constraints_rot[1][2], self.constraints_rot[2][2]),
+            clamp(this.rot.z, self.constraints_rot[1][3], self.constraints_rot[2][3])
+        )
+        calc_p = vec3(
+            clamp(ipos.x, self.constraints_pos[1][1], self.constraints_pos[2][1]),
+            clamp(ipos.y, self.constraints_pos[1][2], self.constraints_pos[2][2]),
+            clamp(ipos.z, self.constraints_pos[1][3], self.constraints_pos[2][3])
+        )
+    elseif self.mode == 3 then
+        calc = vec3(
+            clamp(this.rot.x, self.constraints_rot[1][1], self.constraints_rot[2][1]),
+            clamp(this.rot.y, self.constraints_rot[1][2], self.constraints_rot[2][2]),
+            clamp(this.rot.z, self.constraints_rot[1][3], self.constraints_rot[2][3])
+        ) * s_r
+        calc_p = vec3(
+            clamp(ipos.x, self.constraints_pos[1][1], self.constraints_pos[2][1]),
+            clamp(ipos.y, self.constraints_pos[1][2], self.constraints_pos[2][2]),
+            clamp(ipos.z, self.constraints_pos[1][3], self.constraints_pos[2][3])
+        ) * s_p
+    end
+    self.rot = lerp(self.rot, calc, self.speed)
+    self.pos = lerp(self.pos, calc_p, self.speed)
+end
+
+function extras:render(delta)
+    self.part:setOffsetRot(lerp(self._rot,self.rot,delta))
 end
 
 
