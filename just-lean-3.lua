@@ -65,8 +65,7 @@ jl3.settings = {
     headCurve = "smooth",       --curve for head tracking (linear/easeIn/easeOut/easeInOut/smooth)
     armCurve = "smooth",        --same deal for arms
     legCurve = "smooth",        --and legs
-    _zstr = 0.1,                --body tilt
-    gazeCompat = true           --you could just keep this as true tbh
+    _zstr = 0.1                --body tilt
 }
 
 ---@return table
@@ -247,7 +246,6 @@ function jl3.head:new(mode, part, speed, enabled, constraints, strength, lean_ta
     self.speed = speed or 1
     self.constraints = constraints
     self.strength = strength
-    self.gazeCompat = jl3.settings.gazeCompat
     self.disabled = false
     self._settled = false
     table.insert(jl3.active, self)
@@ -292,11 +290,7 @@ end
 function head:render(delta)
     if not self.enabled or self._settled then return end
     self.r_rot = lerp(self._rot, self.rot, delta)
-    if self.gazeCompat then
-        self.part:setOffsetRot((vHead:getOffsetRot() or base) + self.r_rot)
-    else
-        self.part:setRot(self.r_rot)
-    end
+    self.part:setRot(self.r_rot)
 end
 
 ---@param side Sides --1=LEFT, 2=RIGHT
@@ -437,7 +431,9 @@ function legs:render(delta)
     self.part:setOffsetRot(lerp(self._rot, self.rot, delta))
 end
 
----Influence a Selected Modelpart with a JL3 Object
+---add any modelpart you like to be influenced by one of the other field/types
+---e.g jl3.extras:new(1, example_part, 0.6, example_constructed_table, vec(-0.975,-0.25,0.2), 0.5, nil, nil, example_part:getPivot(), true)
+
 ---@param mode number|ValidModes
 ---@param part ModelPart
 ---@param speed number
