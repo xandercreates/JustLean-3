@@ -557,7 +557,7 @@ function events.tick()
 
     -- Turn lean: cross product of look direction x velocity
     local dir = player:getLookDir()
-    local cross = (dir.x * vel.z) - (dir.z * vel.x)
+    local cross = -((dir.x * vel.z) - (dir.z * vel.x))
     local dis = turnLean - cross
     turnLean = turnLean - jl3.settings.turnLeanStiff * dis
     local settings = jl3.settings
