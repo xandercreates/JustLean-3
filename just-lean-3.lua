@@ -8,11 +8,19 @@ local jl3 = {}
 
 jl3.active = {} -- everything that's currently updating goes here
 
+--recursive find ease
+local ease
+for _, v in ipairs(listFiles(nil, true)) do
+    if v:match("%.ease$") or v:match("ease$") then
+        ease = require(v)
+        break
+    end
+end
 local raw_Y = 0
 local sin, cos, lerp, clamp, abs = math.sin, math.cos, math.lerp, math.clamp, math.abs
-local spring --set after ease.lua is loaded
-local slerp
-local curves
+local spring = ease and ease.spring
+local sperp = ease and ease.sperp
+local curves = ease and ease.curves
 local vec3 = vectors.vec3
 local vHead = vanilla_model.HEAD
 local base = vec3(0, 0, 0)
@@ -55,7 +63,6 @@ jl3.extras = {}
 
 -- tweak any of these at runtime. go wild i guess :P
 jl3.settings = {
-    useBreathing = true,        -- have an idle breathing animation
     breatheStrength = 1.25,     -- strength
     breatheSpeed = 0.95,        -- breathing speed..
     turnLeanStiff = 0.5,
@@ -65,7 +72,8 @@ jl3.settings = {
     headCurve = "smooth",       --curve for head tracking (linear/easeIn/easeOut/easeInOut/smooth)
     armCurve = "smooth",        --same deal for arms
     legCurve = "smooth",        --and legs
-    _zstr = 0.1                --body tilt
+    _zstr = 0.1,                --body tilt
+    doTickCompute = true
 }
 
 ---@return table
@@ -137,6 +145,30 @@ local arm_count = 0
 local leg_count = 0
 local extras_count = 0
 
+
+---Creates a new frame limiter
+---@return fun(x: integer): integer
+local function new_frame_limiter()
+    local current = client.getSystemTime()
+    local elapsed = 0
+    return function(x)
+        -- Calculate elapsed time.
+        local time = client.getSystemTime()
+        elapsed = elapsed + time - current
+        current = time
+
+        -- Get rate at current frame. This is usually less than 1 unless the game's framerate is less than the limited framerate.
+        local rate = elapsed / 1000 * x
+
+        -- Withdraw from elapsed time.
+        for _ = 1, rate do
+            elapsed = elapsed - 1000 / x
+        end
+
+        return rate
+    end
+end
+
 --leaning, the thing you're likely here for.
 
 ---@param mode ValidModes -- 1=STRENGTH, 2=CLAMPED, 3=BOTH
@@ -147,12 +179,14 @@ local extras_count = 0
 ---@param constraints table|nil -- {{xMin,xMax},{yMin,yMax}} degrees. ignored if mode=1
 ---@param strength number|Vector3|nil -- multiplier. ignored if mode=2
 ---@param dobreathe boolean|nil -- breathing on this part? (default: yes)
-function jl3.lean:new(mode, part, speed, pivot, enabled, constraints, strength, dobreathe)
+function jl3.lean:new(mode, part, speed, pivot, enabled, constraints, strength, dobreathe, dospring, in_curve)
     local self = setmetatable({}, lean)
     self.type = "LEAN"
     self.id = torso_count + 1
     self.enabled = enabled
     self.part = part
+    self.do_spring = dospring and dospring or false
+    self.interp_curve = in_curve and in_curve or "linear"
     self.mode = mode
     self.constraints = constraints or {{-90, 90}, {-90, 90}}
     self.strength = strength
@@ -206,13 +240,20 @@ function lean:tick()
         rotTarget = (calc * (sneaking and vec3(0.1, 0.5, 0.1) or 1)) + (self.dobreathe and breathe or base) + vec3(0, 0, turnZ)
     end
     self._pivot = self.pivot
-    self.pivot, self.pivot_vel = spring(self.pivot, pivotTarget, self.pivot_vel, self.speed, s.leanDamping)
-    self.rot, self.rot_vel = spring(self.rot, rotTarget, self.rot_vel, self.speed, s.leanDamping)
+    if self.do_spring then
+        self.pivot, self.pivot_vel = spring(self.pivot, pivotTarget, self.pivot_vel, self.speed, s.leanDamping)
+        self.rot, self.rot_vel = spring(self.rot, rotTarget, self.rot_vel, self.speed, s.leanDamping)
+    else
+        self.rot = sperp(self.rot, rotTarget, self.speed, curves[self.interp_curve])
+        self.pivot = sperp(self.pivot, pivotTarget, self.speed, curves[self.interp_curve])
+    end
     if self.disabled and self.rot:length() < 0.01 and self.rot_vel:length() < 0.01 then
         self.rot, self.rot_vel = base, base
         self.pivot, self.pivot_vel = self.base_pivot, base
         self._settled = true
-        self.part:setOffsetRot(base):setPivot(self.base_pivot)
+        if self.part then
+            self.part:setOffsetRot(base):setPivot(self.base_pivot)
+        end
     end
 end
 
@@ -220,7 +261,9 @@ function lean:render(delta)
     if not self.enabled or self._settled then return end
     self.r_rot = lerp(self._rot, self.rot, delta)
     self.f_pivot = lerp(self._pivot, self.pivot, delta)
-    self.part:setPivot(self.f_pivot):setOffsetRot(self.r_rot)
+    if self.part then
+        self.part:setPivot(self.f_pivot):setOffsetRot(self.r_rot)
+    end
 end
 
 --Head 
@@ -279,18 +322,22 @@ function head:tick()
             ) + self.lean) * self.strength
         end
     end
-    self.rot = slerp(self.rot, calc, self.speed, curves[jl3.settings.headCurve])
+    self.rot = sperp(self.rot, calc, self.speed, curves[jl3.settings.headCurve])
     if self.disabled and self.rot:length() < 0.05 then
         self.rot = base
         self._settled = true
-        self.part:setOffsetRot(base)
+        if self.part then
+            self.part:setOffsetRot(base)
+        end
     end
 end
 
 function head:render(delta)
     if not self.enabled or self._settled then return end
     self.r_rot = lerp(self._rot, self.rot, delta)
-    self.part:setRot(self.r_rot)
+    if self.part then
+        self.part:setRot(self.r_rot)
+    end
 end
 
 ---@param side Sides --1=LEFT, 2=RIGHT
@@ -339,17 +386,21 @@ function arms:tick()
         calc = calc * leanScale
     end
     self._rot = self.rot
-    self.rot = slerp(self.rot, calc, self.speed, curves[jl3.settings.armCurve])
+    self.rot = sperp(self.rot, calc, self.speed, curves[jl3.settings.armCurve])
     if self.disabled and self.rot:length() < 0.05 then
         self.rot = base
         self._settled = true
-        self.part:setOffsetRot(base)
+        if self.part then
+            self.part:setOffsetRot(base)
+        end
     end
 end
 
 function arms:render(delta)
     if not self.enabled or self._settled then return end
-    self.part:setOffsetRot(lerp(self._rot, self.rot, delta))
+    if self.part then
+        self.part:setOffsetRot(lerp(self._rot, self.rot, delta))
+    end
 end
 
 ---@param side Sides|string -- 1="LEFT" or 2="RIGHT"
@@ -368,8 +419,10 @@ function jl3.legs:new(side, part, speed, enabled, strength)
     self.strength = strength
     self.rot = base
     self._rot = base
+    self.r_rot = base
     self.pos = base
     self._pos = base
+    self.r_pos = base
     self.disabled = false
     self._settled = false
     table.insert(jl3.active, self)
@@ -416,19 +469,25 @@ function legs:tick()
     self._rot = self.rot
     self._pos = self.pos
     local curve = curves[jl3.settings.legCurve]
-    self.rot = slerp(self.rot, vec3(_crX, 0, _crZ), self.speed, curve)
-    self.pos = slerp(self.pos, vec3(_calPosX, 0, _calPosZ), self.speed, curve)
+    self.rot = sperp(self.rot, vec3(_crX, 0, _crZ), self.speed, curve)
+    self.pos = sperp(self.pos, vec3(_calPosX, 0, _calPosZ), self.speed, curve)
     if self.disabled and self.rot:length() < 0.05 and self.pos:length() < 0.01 then
         self.rot, self.pos = base, base
         self._settled = true
-        self.part:setOffsetRot(base):setPos(base)
+        if self.part then
+            self.part:setOffsetRot(base):setPos(base)
+        end
     end
 end
 
 function legs:render(delta)
     if not self.enabled or self._settled then return end
-    self.part:setPos(lerp(self._pos, self.pos, delta))
-    self.part:setOffsetRot(lerp(self._rot, self.rot, delta))
+    self.r_pos = lerp(self._pos, self.pos, delta)
+    self.r_rot = lerp(self._rot, self.rot, delta)
+    if self.part then
+        self.part:setPos(self.r_pos)
+        self.part:setOffsetRot(self.r_rot)
+    end
 end
 
 ---add any modelpart you like to be influenced by one of the other field/types
@@ -444,13 +503,14 @@ end
 ---@param constraints_pos? table|nil --this one takes 3 entries for x, y, and z. can set to nil if on STRENGTH (1)
 ---@param pivot Vector3
 ---@param enabled boolean
-function jl3.extras:new(mode, part, speed, influence, strength_rot, strength_pos, constraints_rot, constraints_pos, pivot, enabled)
+function jl3.extras:new(mode, part, speed, influence, strength_rot, strength_pos, constraints_rot, constraints_pos, pivot, enabled, in_curve)
     local self = setmetatable({}, extras)
     self.type = "INFLUENCE"
     self.enabled = enabled or true
     self.part = part
     self.mode = mode
     self.speed = speed
+    self.interp_curve = in_curve or "smooth"
     self.mode_string = mode == 1 and "STRENGTH" or mode == 2 and "CLAMPED" or mode == 3 and "BOTH"
     self.inf_table = influence
     self.strength_rot = strength_rot
@@ -460,8 +520,10 @@ function jl3.extras:new(mode, part, speed, influence, strength_rot, strength_pos
     self.id = extras_count + 1
     self.rot = base
     self._rot = base
+    self.r_rot = base
     self.pos = base
     self._pos = base
+    self.r_pos = base
     self.pivot = type(pivot) == "Vector3" and pivot or self.part:getPivot()
     extras_count = extras_count + 1
     table.insert(jl3.active, self)
@@ -504,14 +566,16 @@ function extras:tick()
             clamp(ipos.z, self.constraints_pos[1][3], self.constraints_pos[2][3])
         ) * s_p
     end
-    self.rot = lerp(self.rot, calc, self.speed)
-    self.pos = lerp(self.pos, calc_p, self.speed)
+    self.rot = sperp(self.rot, calc, self.speed, curves[self.interp_curve])
+    self.pos = sperp(self.pos, calc_p, self.speed, curves[self.interp_curve])
 end
 
 function extras:render(delta)
-    self.part:setOffsetRot(lerp(self._rot,self.rot,delta))
+    self.r_rot = lerp(self._rot, self.rot, delta)
+    if self.part then
+        self.part:setOffsetRot(self.r_rot)
+    end
 end
-
 
 function jl3:disable()
     for i = 1, #self.active do self.active[i]:disable() end
@@ -521,11 +585,6 @@ function jl3:enable()
 end
 
 function events.tick()
-    if not spring then
-        spring = math.boing
-        slerp = math.slerp
-        curves = math.cur
-    end
     local systime = client.getSystemTime() * 0.001
     local t = sin(systime * 1.25)
     local vel = player:getVelocity()
