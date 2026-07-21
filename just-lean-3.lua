@@ -145,30 +145,6 @@ local arm_count = 0
 local leg_count = 0
 local extras_count = 0
 
-
----Creates a new frame limiter
----@return fun(x: integer): integer
-local function new_frame_limiter()
-    local current = client.getSystemTime()
-    local elapsed = 0
-    return function(x)
-        -- Calculate elapsed time.
-        local time = client.getSystemTime()
-        elapsed = elapsed + time - current
-        current = time
-
-        -- Get rate at current frame. This is usually less than 1 unless the game's framerate is less than the limited framerate.
-        local rate = elapsed / 1000 * x
-
-        -- Withdraw from elapsed time.
-        for _ = 1, rate do
-            elapsed = elapsed - 1000 / x
-        end
-
-        return rate
-    end
-end
-
 --leaning, the thing you're likely here for.
 
 ---@param mode ValidModes -- 1=STRENGTH, 2=CLAMPED, 3=BOTH
