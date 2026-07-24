@@ -52,7 +52,7 @@ easings.curves = {
 ---@param speed number -- lerp speed
 ---@param curve_fn function yes
 ---@return number|Vector3
-function easings.slerp(curr, tgt, speed, curve_fn)
+function easings.sperp(curr, tgt, speed, curve_fn)
     local diff = tgt - curr
     local dist = type(diff) == "number" and math.abs(diff) or diff:length()
     if dist < 0.001 then return tgt end
