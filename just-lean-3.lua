@@ -10,6 +10,38 @@
 ---|1 LEFT
 ---|2 RIGHT
 
+---@alias ValidCurves
+---| "linear"
+---| "smooth"
+---| "logarithmic"
+---| "inSine"
+---| "outSine"
+---| "sine"
+---| "inQuad"
+---| "outQuad"
+---| "quad"
+---| "inCubic"
+---| "outCubic"
+---| "cubic"
+---| "inQuart"
+---| "outQuart"
+---| "quart"
+---| "inQuint"
+---| "outQuint"
+---| "quint"
+---| "inExpo"
+---| "outExpo"
+---| "expo"
+---| "inCirc"
+---| "outCirc"
+---| "circ"
+---| "inBack"
+---| "outBack"
+---| "back"
+---| "inBounce"
+---| "outBounce"
+---| "bounce"
+
 ---@class JustLean3
 local jl3 = {}
 
@@ -144,17 +176,16 @@ jl3.legs = {}
 jl3.extras = {}
 
 jl3.settings = {
-    breatheStrength = 1.25,
-    breatheSpeed = 0.95,
+    breatheStrength = 1.25,     -- strength
+    breatheSpeed = 0.95,        -- breathing speed..
     turnLeanStiff = 0.5,
     turnLeanStrength = 40,
-    turn_z = 15,
-    leanDamping = 0.575,
-    headCurve = "smooth",
-    armCurve = "smooth",
-    legCurve = "smooth",
-    _zstr = 0.1,
-    doTickCompute = true
+    turn_z = 15,                --max angle in degrees for the z axis of the torso
+    leanDamping = 0.575,        --torso spring bounciness (higher = wobblier, lower = stiffer) idk why its like this it was meant to be the other way around but here it is.
+    headCurve = "smooth",       --curve for head tracking (linear/easeIn/easeOut/easeInOut/smooth)
+    armCurve = "smooth",        --same deal for arms
+    legCurve = "smooth",        --and legs
+    _zstr = 0.1,                --body tilt
 }
 
 function jl3:getActiveTable()
@@ -243,10 +274,18 @@ local arm_count = 0
 local leg_count = 0
 local extras_count = 0
 
---====================================================================
--- Modules
---====================================================================
 
+---@param mode ValidModes
+---@param part? ModelPart
+---@param speed number
+---@param pivot Vector3
+---@param enabled boolean
+---@param constraints table --{{xMin, xMax}, {yMin, yMax}}
+---@param strength Vector3
+---@param dobreathe boolean
+---@param dospring boolean
+---@param in_curve ValidCurves
+---@return table
 function jl3.lean:new(mode, part, speed, pivot, enabled, constraints, strength, dobreathe, dospring, in_curve)
     local self = setmetatable({}, lean)
     self.type = "LEAN"
@@ -327,6 +366,14 @@ function lean:render(delta)
     end
 end
 
+---@param mode ValidModes
+---@param part? ModelPart
+---@param speed number
+---@param enabled true
+---@param constraints table
+---@param strength number|Vector3
+---@param lean_table JustLean3
+---@return table
 function jl3.head:new(mode, part, speed, enabled, constraints, strength, lean_table)
     local self = setmetatable({}, head)
     self.type = "HEAD"
@@ -389,6 +436,13 @@ function head:render(delta)
     end
 end
 
+
+---@param side Sides
+---@param part? ModelPart
+---@param speed number
+---@param enabled boolean
+---@param strength number|Vector3
+---@return table
 function jl3.arms:new(side, part, speed, enabled, strength)
     local self = setmetatable({}, arms)
     self.type = "ARM"
@@ -442,6 +496,12 @@ function arms:render(delta)
     end
 end
 
+---@param side Sides
+---@param part? ModelPart
+---@param speed number
+---@param enabled boolean
+---@param strength number|Vector3
+---@return table
 function jl3.legs:new(side, part, speed, enabled, strength)
     local self = setmetatable({}, legs)
     self.type = "LEG"
@@ -519,6 +579,18 @@ function legs:render(delta)
     end
 end
 
+---@param mode ValidModes
+---@param part? ModelPart
+---@param speed number
+---@param influence table
+---@param strength_rot number|Vector3
+---@param strength_pos number|Vector3
+---@param constraints_rot table
+---@param constraints_pos table
+---@param pivot Vector3
+---@param enabled boolean
+---@param in_curve ValidCurves
+---@return table
 function jl3.extras:new(mode, part, speed, influence, strength_rot, strength_pos, constraints_rot, constraints_pos, pivot, enabled, in_curve)
     local self = setmetatable({}, extras)
     self.type = "INFLUENCE"
