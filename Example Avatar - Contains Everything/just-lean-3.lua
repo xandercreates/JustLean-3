@@ -38,6 +38,9 @@
 ---| "inBack"
 ---| "outBack"
 ---| "back"
+---| "inElastic"
+---| "outElastic"
+---| "elastic"
 ---| "inBounce"
 ---| "outBounce"
 ---| "bounce"
@@ -122,8 +125,10 @@ local curves = {
 }
 
 local function sperp(curr, tgt, speed, curve_data, axis_mask)
-    local diff = tgt - curr
-    local dist = type(diff) == "number" and abs(diff) or diff:length()
+    
+    local dx, dy, dz = tgt.x - curr.x, tgt.y - curr.y, tgt.z - curr.z
+    local dist = sqrt(dx*dx + dy*dy + dz*dz) 
+    
     if dist < 0.001 then return tgt end
     local rawT = clamp(dist / 90, 0, 1)
     
@@ -150,7 +155,11 @@ local function sperp(curr, tgt, speed, curve_data, axis_mask)
     else
         local extra = curve_data(rawT)
         local shaped = speed + (1 - speed) * extra
-        return lerp(curr, tgt, clamp(shaped, 0, 1))
+        return vec3(
+            lerp(curr.x, tgt.x, clamp(shaped, 0, 1)),
+            lerp(curr.y, tgt.y, clamp(shaped, 0, 1)),
+            lerp(curr.z, tgt.z, clamp(shaped, 0, 1))
+        )
     end
 end
 
@@ -162,6 +171,13 @@ end
 local function damp(current, target, rate, dt)
     return lerp(current, target, 1 - exp(-rate * dt))
 end
+
+--added to mathlib in case anyone wants to use the math functions elsewhere without having to manually copy pasting them
+math.sperp = sperp 
+math.spring = spring
+math.damp = damp
+math.curves = curves
+
 
 local MODE_STRENGTH = 1
 local MODE_CLAMPED = 2
@@ -286,13 +302,14 @@ local extras_count = 0
 ---@param dospring boolean
 ---@param in_curve ValidCurves
 ---@return table
-function jl3.lean:new(mode, part, speed, pivot, enabled, constraints, strength, dobreathe, dospring, in_curve)
+function jl3.lean:new(mode, part, speed, pivot, enabled, constraints, strength, dobreathe, dospring, in_curve, axis_mask)
     local self = setmetatable({}, lean)
     self.type = "LEAN"
     self.id = torso_count + 1
     self.enabled = enabled
     self.disabled = not enabled
     self.weight = 1
+    self.axis_mask = axis_mask
     self._w = enabled and 1 or 0
     self.part = part
     self.do_spring = dospring and dospring or false
@@ -327,42 +344,55 @@ function lean:tick()
         pivotTarget = self.base_pivot
     else
         local zRot = raw.y * s._zstr * leanScale
+        local calcX, calcY, calcZ = 0, 0, 0
         local calc
         if self.mode == MODE_STRENGTH then
-            calc = vec3(raw.x * targetVel, raw.y, raw.z + zRot) * self.strength * leanScale
+            calcX = raw.x * targetVel * self.strength.x * leanScale
+            calcY = raw.y * self.strength.y * leanScale
+            calcZ = (raw.z + zRot) * self.strength.z * leanScale
         elseif self.mode == MODE_CLAMPED then
-            calc = vec3(
-                clamp(raw.x, self.constraints[1][1], self.constraints[1][2]) * targetVel,
-                clamp(raw.y, self.constraints[2][1], self.constraints[2][2]) * targetVel,
-                zRot
-            ) * leanScale
+            calcX = clamp(raw.x, self.constraints[1][1], self.constraints[1][2]) * targetVel * leanScale
+            calcY = clamp(raw.y, self.constraints[2][1], self.constraints[2][2]) * targetVel * leanScale
+            calcZ = zRot * leanScale
         elseif self.mode == MODE_BOTH then
-            calc = vec3(
-                clamp(raw.x, self.constraints[1][1], self.constraints[1][2]) * targetVel,
-                clamp(raw.y, self.constraints[2][1], self.constraints[2][2]) * targetVel,
-                zRot
-            ) * self.strength * leanScale
+            calcX = clamp(raw.x, self.constraints[1][1], self.constraints[1][2]) * targetVel * self.strength.x * leanScale
+            calcY = clamp(raw.y, self.constraints[2][1], self.constraints[2][2]) * targetVel * self.strength.y * leanScale
+            calcZ = zRot * self.strength.z * leanScale
         end
         local turnZ = clamp(turnLean * s.turnLeanStrength, -s.turn_z, s.turn_z)
+
+        local multX = sneaking and 0.1 or 1
+        local multY = sneaking and 0.5 or 1
+        local multZ = sneaking and 0.1 or 1
+
+        local bX = self.dobreathe and breathe.x or 0
+        local bY = self.dobreathe and breathe.y or 0
+        local bZ = self.dobreathe and breathe.z or 0
+
         pivotTarget = self.base_pivot + (sneaking and (vanilla_model.BODY:getOriginPos() * 1.875) or base)
-        rotTarget = (calc * (sneaking and vec3(0.1, 0.5, 0.1) or 1)) + (self.dobreathe and breathe or base) + vec3(0, 0, turnZ)
+        rotTarget = vec3(
+            (calcX * multX) + bX,
+            (calcY * multY) + bY,
+            (calcZ * multZ) + bZ + turnZ
+        )
     end
     self._pivot = self.pivot
     if self.do_spring then
         self.pivot, self.pivot_vel = spring(self.pivot, pivotTarget, self.pivot_vel, self.speed, s.leanDamping)
         self.rot, self.rot_vel = spring(self.rot, rotTarget, self.rot_vel, self.speed, s.leanDamping)
     else
-        self.rot = sperp(self.rot, rotTarget, self.speed, curves[self.interp_curve])
-        self.pivot = sperp(self.pivot, pivotTarget, self.speed, curves[self.interp_curve])
+        self.rot = sperp(self.rot, rotTarget, self.speed, curves[self.interp_curve], self.axis_mask)
+        self.pivot = sperp(self.pivot, pivotTarget, self.speed, curves[self.interp_curve], self.axis_mask)
     end
 end
 
 function lean:render(delta)
     if self._settled then return end
-    self.r_rot = lerp(self._rot, self.rot, delta)
+    self.r_rot = lerp(self._rot, self.rot, delta) * self._w
     self.f_pivot = lerp(self._pivot, self.pivot, delta)
+    local l_pivot = lerp(self.base_pivot, self.f_pivot, self._w)
     if self.part then
-        self.part:setPivot(lerp(self.base_pivot, self.f_pivot, self._w)):setOffsetRot(self.r_rot * self._w)
+        self.part:setPivot(l_pivot):setOffsetRot(self.r_rot)
     end
 end
 
@@ -407,32 +437,41 @@ function head:tick()
         calc = base
     else
         local headBob = breathe.y * 0.3
+        local rawX, rawY = raw.x, raw.y
+        local leanX, leanY, leanZ = self.lean.x, self.lean.y, self.lean.z
+        
+        -- Safely extract strength as primitives (whether it's a number or vec3)
+        local st = self.strength
+        local stX = type(st) == "number" and st or st.x
+        local stY = type(st) == "number" and st or st.y
+        local stZ = type(st) == "number" and st or st.z
+
+        local cX, cY, cZ = 0, 0, 0
+
         if self.mode == MODE_STRENGTH then
-            calc = (raw + vec3(headBob, 0, raw.y * 0.125) + self.lean) * self.strength
+            cX = (rawX + headBob + leanX) * stX
+            cY = (rawY + leanY) * stY
+            cZ = ((rawY * 0.125) + leanZ) * stZ
         elseif self.mode == MODE_CLAMPED then
-            calc = vec3(
-                clamp(raw.x, self.constraints[1][1], self.constraints[1][2]) + headBob,
-                clamp(raw.y, self.constraints[2][1], self.constraints[2][2]),
-                raw.y * 0.125
-            ) + self.lean
+            cX = clamp(rawX, self.constraints[1][1], self.constraints[1][2]) + headBob + leanX
+            cY = clamp(rawY, self.constraints[2][1], self.constraints[2][2]) + leanY
+            cZ = (rawY * 0.125) + leanZ
         elseif self.mode == MODE_BOTH then
-            calc = (vec3(
-                clamp(raw.x, self.constraints[1][1], self.constraints[1][2]) + headBob,
-                clamp(raw.y, self.constraints[2][1], self.constraints[2][2]),
-                raw.y * 0.125
-            ) + self.lean) * self.strength
+            cX = (clamp(rawX, self.constraints[1][1], self.constraints[1][2]) + headBob + leanX) * stX
+            cY = (clamp(rawY, self.constraints[2][1], self.constraints[2][2]) + leanY) * stY
+            cZ = ((rawY * 0.125) + leanZ) * stZ
         end
+        calc = vec3(cX, cY, cZ)
     end
     self.rot = sperp(self.rot, calc, self.speed, curves[jl3.settings.headCurve])
 end
 
 function head:render(delta)
     if self._settled then return end
-    self.r_rot = lerp(self._rot, self.rot, delta)
-    local w = self._w
-    vHead:setRot(vHead:getOriginRot() * (1 - w))
+    self.r_rot = lerp(self._rot, self.rot, delta) * self._w
+    vHead:setRot(vHead:getOriginRot() * (1 - self._w))
     if self.part then
-        self.part:setRot(self.r_rot * w)
+        self.part:setRot(self.r_rot)
     end
 end
 
@@ -457,6 +496,7 @@ function jl3.arms:new(side, part, speed, enabled, strength)
     self._w = enabled and 1 or 0
     self.rot = base
     self._rot = base
+    self.r_rot = base
     self._settled = false
     table.insert(jl3.active, self)
     arm_count = arm_count + 1
@@ -470,20 +510,23 @@ function arms:tick()
         calc = base
     else
         local armBreathe = breathe.x * 0.15
+        local calcX = 0
+        
         if self.side == LEFT then
             if sneaking then
-                calc = vec3((-raw.x * self.strength.x * 0.5) + armBreathe, 0, 0)
+                calcX = (-raw.x * self.strength.x * 0.5) + armBreathe
             else
-                calc = vec3(((-raw.x * self.strength.x + -(raw.y * self.strength.z)) * targetVel) + armBreathe, 0, 0)
+                calcX = ((-raw.x * self.strength.x + -(raw.y * self.strength.z)) * targetVel) + armBreathe
             end
         elseif self.side == RIGHT then
             if sneaking then
-                calc = vec3((-raw.x * self.strength.x * 0.5) - armBreathe, 0, 0)
+                calcX = (-raw.x * self.strength.x * 0.5) - armBreathe
             else
-                calc = vec3(((-raw.x * self.strength.x + (raw.y * self.strength.z)) * targetVel) - armBreathe, 0, 0)
+                calcX = ((-raw.x * self.strength.x + (raw.y * self.strength.z)) * targetVel) - armBreathe
             end
         end
-        calc = calc * leanScale
+        -- Only construct the vector once we know the final X value
+        calc = vec3(calcX * leanScale, 0, 0)
     end
     self._rot = self.rot
     self.rot = sperp(self.rot, calc, self.speed, curves[jl3.settings.armCurve])
@@ -491,8 +534,9 @@ end
 
 function arms:render(delta)
     if self._settled then return end
+    self.r_rot = lerp(self._rot, self.rot, delta) * self._w
     if self.part then
-        self.part:setOffsetRot(lerp(self._rot, self.rot, delta) * self._w)
+        self.part:setOffsetRot(self.r_rot)
     end
 end
 
@@ -571,11 +615,11 @@ end
 
 function legs:render(delta)
     if self._settled then return end
-    self.r_pos = lerp(self._pos, self.pos, delta)
-    self.r_rot = lerp(self._rot, self.rot, delta)
+    self.r_pos = lerp(self._pos, self.pos, delta) * self._w
+    self.r_rot = lerp(self._rot, self.rot, delta) * self._w
     if self.part then
-        self.part:setPos(self.r_pos * self._w)
-        self.part:setOffsetRot(self.r_rot * self._w)
+        self.part:setPos(self.r_pos)
+        self.part:setOffsetRot(self.r_rot)
     end
 end
 
@@ -625,54 +669,64 @@ end
 function extras:tick()
     if self:stepWeight() then return end
     local this = self.inf_table
-    local calc
-    local calc_p
     local ipos = this.pos and this.pos or base
     self._rot = self.rot
     self._pos = self.pos
-    local s_r = self.strength_rot * (player:isCrouching() and 0.5 or 1)
-    local s_p = self.strength_pos * (player:isCrouching() and 0.5 or 1)
+    
+    local calc, calc_p
     
     if self.disabled then
         calc = base
         calc_p = base
-    elseif self.mode == 1 then
-        calc = this.rot * s_r
-        calc_p = ipos * s_p
-    elseif self.mode == 2 then
-        calc = vec3(
-            clamp(this.rot.x, self.constraints_rot[1][1], self.constraints_rot[2][1]),
-            clamp(this.rot.y, self.constraints_rot[1][2], self.constraints_rot[2][2]),
-            clamp(this.rot.z, self.constraints_rot[1][3], self.constraints_rot[2][3])
-        )
-        calc_p = vec3(
-            clamp(ipos.x, self.constraints_pos[1][1], self.constraints_pos[2][1]),
-            clamp(ipos.y, self.constraints_pos[1][2], self.constraints_pos[2][2]),
-            clamp(ipos.z, self.constraints_pos[1][3], self.constraints_pos[2][3])
-        )
-    elseif self.mode == 3 then
-        calc = vec3(
-            clamp(this.rot.x, self.constraints_rot[1][1], self.constraints_rot[2][1]),
-            clamp(this.rot.y, self.constraints_rot[1][2], self.constraints_rot[2][2]),
-            clamp(this.rot.z, self.constraints_rot[1][3], self.constraints_rot[2][3])
-        ) * s_r
-        calc_p = vec3(
-            clamp(ipos.x, self.constraints_pos[1][1], self.constraints_pos[2][1]),
-            clamp(ipos.y, self.constraints_pos[1][2], self.constraints_pos[2][2]),
-            clamp(ipos.z, self.constraints_pos[1][3], self.constraints_pos[2][3])
-        ) * s_p
+    else
+        local crouchMult = player:isCrouching() and 0.5 or 1
+        local sr = self.strength_rot
+        local sp = self.strength_pos
+        local srX = (type(sr) == "number" and sr or sr.x) * crouchMult
+        local srY = (type(sr) == "number" and sr or sr.y) * crouchMult
+        local srZ = (type(sr) == "number" and sr or sr.z) * crouchMult
+        local spX = (type(sp) == "number" and sp or sp.x) * crouchMult
+        local spY = (type(sp) == "number" and sp or sp.y) * crouchMult
+        local spZ = (type(sp) == "number" and sp or sp.z) * crouchMult
+        local rX, rY, rZ = 0, 0, 0
+        local pX, pY, pZ = 0, 0, 0
+        
+        if self.mode == 1 then
+            rX, rY, rZ = this.rot.x * srX, this.rot.y * srY, this.rot.z * srZ
+            pX, pY, pZ = ipos.x * spX, ipos.y * spY, ipos.z * spZ
+        elseif self.mode == 2 then
+            rX = clamp(this.rot.x, self.constraints_rot[1][1], self.constraints_rot[2][1])
+            rY = clamp(this.rot.y, self.constraints_rot[1][2], self.constraints_rot[2][2])
+            rZ = clamp(this.rot.z, self.constraints_rot[1][3], self.constraints_rot[2][3])
+            
+            pX = clamp(ipos.x, self.constraints_pos[1][1], self.constraints_pos[2][1])
+            pY = clamp(ipos.y, self.constraints_pos[1][2], self.constraints_pos[2][2])
+            pZ = clamp(ipos.z, self.constraints_pos[1][3], self.constraints_pos[2][3])
+        elseif self.mode == 3 then
+            rX = clamp(this.rot.x, self.constraints_rot[1][1], self.constraints_rot[2][1]) * srX
+            rY = clamp(this.rot.y, self.constraints_rot[1][2], self.constraints_rot[2][2]) * srY
+            rZ = clamp(this.rot.z, self.constraints_rot[1][3], self.constraints_rot[2][3]) * srZ
+            
+            pX = clamp(ipos.x, self.constraints_pos[1][1], self.constraints_pos[2][1]) * spX
+            pY = clamp(ipos.y, self.constraints_pos[1][2], self.constraints_pos[2][2]) * spY
+            pZ = clamp(ipos.z, self.constraints_pos[1][3], self.constraints_pos[2][3]) * spZ
+        end
+        
+        calc = vec3(rX, rY, rZ)
+        calc_p = vec3(pX, pY, pZ)
     end
+    
     self.rot = sperp(self.rot, calc, self.speed, curves[self.interp_curve])
     self.pos = sperp(self.pos, calc_p, self.speed, curves[self.interp_curve])
 end
 
 function extras:render(delta)
     if self._settled then return end
-    self.r_rot = lerp(self._rot, self.rot, delta)
-    self.r_pos = lerp(self._pos, self.pos, delta)
+    self.r_rot = lerp(self._rot, self.rot, delta) * self._w
+    self.r_pos = lerp(self._pos, self.pos, delta) * self._w
     if self.part then
-        self.part:setPos(self.r_pos * self._w)
-        self.part:setOffsetRot(self.r_rot * self._w)
+        self.part:setPos(self.r_pos)
+        self.part:setOffsetRot(self.r_rot)
     end
 end
 
@@ -690,7 +744,7 @@ end
 
 function events.tick()
     local systime = client.getSystemTime() * 0.001
-    isSableLoaded = client:isModLoaded("sable")
+    isSableLoaded = client.isModLoaded("sable")
     local t = sin(systime * 1.25)
     local vel
     if isSableLoaded then
