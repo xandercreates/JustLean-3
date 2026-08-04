@@ -125,41 +125,46 @@ local curves = {
 }
 
 local function sperp(curr, tgt, speed, curve_data, axis_mask)
-    
     local dx, dy, dz = tgt.x - curr.x, tgt.y - curr.y, tgt.z - curr.z
-    local dist = sqrt(dx*dx + dy*dy + dz*dz) 
+    local dist = math.sqrt(dx*dx + dy*dy + dz*dz) 
     
     if dist < 0.001 then return tgt end
-    local rawT = clamp(dist / 90, 0, 1)
+    
+    local rawT = clamp((dist / 90) * speed, 0, 1)
     
     if axis_mask and type(curve_data) == "function" then
         local cx = axis_mask.x == 1 and curve_data or curves.linear
         local cy = axis_mask.y == 1 and curve_data or curves.linear
         local cz = axis_mask.z == 1 and curve_data or curves.linear
         
-        return vec3(
-            lerp(curr.x, tgt.x, clamp(speed + (1 - speed) * cx(rawT), 0, 1)),
-            lerp(curr.y, tgt.y, clamp(speed + (1 - speed) * cy(rawT), 0, 1)),
-            lerp(curr.z, tgt.z, clamp(speed + (1 - speed) * cz(rawT), 0, 1))
+        local shaped_x = clamp(cx(rawT) * speed, 0, 1)
+        local shaped_y = clamp(cy(rawT) * speed, 0, 1)
+        local shaped_z = clamp(cz(rawT) * speed, 0, 1)
+        return vec(
+            lerp(curr.x, tgt.x, shaped_x),
+            lerp(curr.y, tgt.y, shaped_y),
+            lerp(curr.z, tgt.z, shaped_z)
         )
+        
     elseif type(curve_data) == "table" then
         local cx = curve_data.x or curves.linear
         local cy = curve_data.y or curves.linear
         local cz = curve_data.z or curves.linear
         
-        return vec3(
-            lerp(curr.x, tgt.x, clamp(speed + (1 - speed) * cx(rawT), 0, 1)),
-            lerp(curr.y, tgt.y, clamp(speed + (1 - speed) * cy(rawT), 0, 1)),
-            lerp(curr.z, tgt.z, clamp(speed + (1 - speed) * cz(rawT), 0, 1))
+        local shaped_x = clamp(cx(rawT) * speed, 0, 1)
+        local shaped_y = clamp(cy(rawT) * speed, 0, 1)
+        local shaped_z = clamp(cz(rawT) * speed, 0, 1)
+        
+        return vec(
+            lerp(curr.x, tgt.x, shaped_x),
+            lerp(curr.y, tgt.y, shaped_y),
+            lerp(curr.z, tgt.z, shaped_z)
         )
+        
     else
-        local extra = curve_data(rawT)
-        local shaped = speed + (1 - speed) * extra
-        return vec3(
-            lerp(curr.x, tgt.x, clamp(shaped, 0, 1)),
-            lerp(curr.y, tgt.y, clamp(shaped, 0, 1)),
-            lerp(curr.z, tgt.z, clamp(shaped, 0, 1))
-        )
+        local extra = curve_data and curve_data(rawT) or curves.linear(rawT)
+        local shaped = clamp((1 - extra) * speed, 0, 1)
+        return lerp(curr, tgt, shaped)
     end
 end
 
