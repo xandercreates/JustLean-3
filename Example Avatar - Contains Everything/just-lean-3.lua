@@ -45,11 +45,117 @@
 ---| "outBounce"
 ---| "bounce"
 
+function _optUpdates(x)
+    config:save("jl3updOptIn", x)
+    if x then
+        if not net:isNetworkingAllowed() then
+            printJson('{"text":"Update Notifications Enabled, Make sure you have Networking Enabled.","color":"green"}')
+        else
+            printJson('{"text":"Update Notifications are now Enabled.", "color":"green"}')
+        end
+    else
+        printJson('{"text":"Update Notifications are now Disabled.", "color":"gold"}')
+    end
+end
+
 ---@class JustLean3
 local jl3 = {}
-
 jl3.active = {} -- everything that's currently updating goes here
+config:setName(avatar:getName()..".jl3_cache")
 
+local getUpdateMsges = config:load("jl3updOptIn")
+local showAgainOrNo = config:load("jl3DNSA")
+local printNetworkOffMsg = false
+local printUpToDateMsg = false
+local printFailed = false
+
+local optinout = '["",{"text":"Opt in for Just Lean 3 Update Notifications?"},{"text":"\n"},{"text":"[YES]","color":"#00FF00","clickEvent":{"action":"figura_function","value":"_optUpdates(true)"}},{"text":" [NO]\n","color":"#FF0000","clickEvent":{"action":"figura_function","value":"_optUpdates(false)"}}]'
+
+if getUpdateMsges == nil then
+    printJson(optinout)
+end
+
+local _VERSION = "3.0.1-semantictest"
+local versionFuture = nil
+local ver_warn = {
+    {
+        text = "Just Lean 3 Update Available!",
+        hoverEvent = {
+            action = "show_text",
+            contents = {
+                {
+                
+                }
+            }
+        }
+    },
+    {
+        text = "Just Lean 3 Update not Found!",
+        hoverEvent = {
+            action = "show_text",
+            contents = {
+                {
+                
+                }
+            }
+        }
+    }
+}
+if host:isHost() then
+    local rawUrl = "https://raw.githubusercontent.com/xandercreates/JustLean-3/refs/heads/main/just-lean-3.lua"
+    if net:isNetworkingAllowed() then
+        if net:isLinkAllowed(rawUrl) then
+            if net.http then
+                versionFuture = net.http:request(rawUrl):send()
+            end
+        else
+            if printNetworkOffMsg then
+                printJson('{"text":"[Just Lean 3]: Remote Link is not Whitelisted or is Blacklisted.","color":"red"}')
+            end
+        end
+    else
+        if printNetworkOffMsg then
+            printJson('{"text":"[Just Lean 3]: Version Check Failed, Networking is Disabled in Config","color":"dark_red","bold":true}')
+        end
+    end
+end
+
+local function parseVersion(response)
+    local stream = response:getData()
+    local buffer = data:createBuffer()
+    
+    buffer:readFromStream(stream)
+    buffer:setPosition(0)
+    
+    local textData = buffer:readString()
+    buffer:close()
+    local remoteVersion = string.match(textData, 'local%s+_VERSION%s*=%s*["\'](.-)["\']')
+
+    if not remoteVersion then
+        if printFailed then
+            printJson('{"text":"[Just Lean 3]: Cannot read the remote version.","color":"gold"}')
+        end
+        return
+    end
+
+    if remoteVersion ~= _VERSION then
+        local tbl = {
+            {
+                text = '[Just Lean 3]: Update Available, New Version ',
+                color = "gold"
+            },
+            {
+                text = remoteVersion,
+                color = "green"
+            }
+        }
+        printJson(toJson(tbl))
+    else
+        if printUpToDateMsg then
+            printJson('{"text":"Just Lean 3: The script is up to date.","color":"green"}')
+        end
+    end
+end
 
 local sin, cos, lerp, clamp, abs = math.sin, math.cos, math.lerp, math.clamp, math.abs
 local logar, exp, sqrt = math.log, math.exp, math.sqrt
@@ -788,7 +894,18 @@ function events.tick()
     local systime = client.getSystemTime() * 0.001
     isSableLoaded = client.isModLoaded("sable")
     local t = sin(systime * 1.25)
-    
+    if host:isHost() then
+    if versionFuture and versionFuture:isDone() then
+            --log(versionFuture:getOrError(), versionFuture:getValue(), versionFuture:getValue())
+            if versionFuture:isDone() then
+                parseVersion(versionFuture:getValue())
+            else
+                printJson('{"text":"Just Lean 3: Failed to check for updates","color":"red"}')
+            end
+            versionFuture = nil
+        end
+    end
+
     local vel
     if isSableLoaded then
         local x, y, z = table.unpack(player:getNbt().Motion)
