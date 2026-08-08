@@ -75,7 +75,7 @@ if getUpdateMsges == nil then
     printJson(optinout)
 end
 
-local _VERSION = "3.0.2-semantictest"
+local _VERSION = "3.0.3"
 local versionFuture = nil
 local ver_warn = {
     {
@@ -137,22 +137,32 @@ local function parseVersion(response)
         end
         return
     end
-
-    if remoteVersion ~= _VERSION then
-        local tbl = {
-            {
-                text = '[Just Lean 3]: Update Available, New Version ',
-                color = "gold"
-            },
-            {
-                text = remoteVersion,
-                color = "green"
+    if getUpdateMsges then
+        if client.compareVersions(_VERSION, remoteVersion) < 0 then
+            local tbl = {
+                {
+                    text = '[Just Lean 3]: Update Available, New Version ',
+                    color = "gold"
+                },
+                {
+                    text = remoteVersion,
+                    color = "green"
+                }
             }
-        }
-        printJson(toJson(tbl))
-    else
-        if printUpToDateMsg then
-            printJson('{"text":"[Just Lean 3]: JL3 is up to date.","color":"green"}')
+            --log(table.concat({tbl[1].text,}, ',', 1, 2))
+            printJson('['..toJson(tbl[1])..','..toJson(tbl[2])..']')
+        elseif client.compareVersions(_VERSION, remoteVersion) > 0 then
+            local tbl = {
+                {
+                    text = '[Just Lean 3]: Local Version is Newer than Remote',
+                    color = "gold"
+                }
+            }
+            printJson(toJson(tbl))
+        else
+            if printUpToDateMsg then
+                printJson('{"text":"[Just Lean 3]: JL3 is up to date.","color":"green"}')
+            end
         end
     end
 end
