@@ -75,32 +75,9 @@ if getUpdateMsges == nil then
     printJson(optinout)
 end
 
-local _VERSION = "3.0.3"
+local _VERSION = "3.0.4"
 local versionFuture = nil
-local ver_warn = {
-    {
-        text = "Just Lean 3 Update Available!",
-        hoverEvent = {
-            action = "show_text",
-            contents = {
-                {
-                
-                }
-            }
-        }
-    },
-    {
-        text = "Just Lean 3 Update not Found!",
-        hoverEvent = {
-            action = "show_text",
-            contents = {
-                {
-                
-                }
-            }
-        }
-    }
-}
+
 if host:isHost() then
     local rawUrl = "https://raw.githubusercontent.com/xandercreates/JustLean-3/refs/heads/main/just-lean-3.lua"
     if net:isNetworkingAllowed() then
