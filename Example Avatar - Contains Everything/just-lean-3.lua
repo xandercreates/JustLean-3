@@ -68,6 +68,7 @@ local riding = false
 local swim = false
 local climbing = false
 local targetVel = 1
+local swayMult = 0
 local breathe = base
 local turnLean = 0
 local leanScale = 1.0
@@ -379,7 +380,7 @@ function lean:tick()
             calcY = clamp(raw.y, self.constraints[2][1], self.constraints[2][2]) * targetVel * self.strength.y * leanScale
             calcZ = zRot * self.strength.z * leanScale
         end
-        local ly = l_rY * x_damp
+        local ly = (l_rY * x_damp) * swayMult
         local avg_z = (not player:getVehicle()) and self.doshimmy and (ly * 0.02) or 0 ---fixed, adjusted, and approximated
         local avg_x = (not player:getVehicle()) and self.doshimmy and (ly * 0.05) or 0
 
@@ -609,7 +610,7 @@ function legs:tick()
         local calPosX, calPosZ = 0, 0
         local x_damp = clamp(1 - abs(raw.x) / 90, 0, 1)
         local dY = raw_Y * x_damp
-        local smooth_lry = l_rY * x_damp
+        local smooth_lry = (l_rY * x_damp) * swayMult
         local stateMult = sneaking and 0.5 or 1.0
         if self.doshimmy and not player:getVehicle() then
             lsR = (-smooth_lry * 0.2) * stateMult
@@ -823,6 +824,7 @@ function events.tick()
     l_rY = lerp(l_rY, raw_Y, 1)
 
     targetVel = math.max(0.3, 1.0 - (speed * 0.16))
+    swayMult = clamp(1.0 - (speed * 0.16), 0, 1)
 
     -- Turn lean: cross product of look direction x velocity
     local dir = player:getLookDir()
