@@ -66,7 +66,7 @@ config:setName(avatar:getName()..".jl3_cache")
 local getUpdateMsges = config:load("jl3updOptIn")
 local showAgainOrNo = config:load("jl3DNSA")
 local printNetworkOffMsg = false
-local printUpToDateMsg = false
+local printUpToDateMsg = true
 local printFailed = false
 
 local optinout = '["",{"text":"Opt in for Just Lean 3 Update Notifications?"},{"text":"\n"},{"text":"[YES]","color":"#00FF00","clickEvent":{"action":"figura_function","value":"_optUpdates(true)"}},{"text":" [NO]\n","color":"#FF0000","clickEvent":{"action":"figura_function","value":"_optUpdates(false)"}}]'
@@ -75,7 +75,7 @@ if getUpdateMsges == nil then
     printJson(optinout)
 end
 
-local _VERSION = "3.0.1-semantictest"
+local _VERSION = "3.0.2-semantictest"
 local versionFuture = nil
 local ver_warn = {
     {
@@ -152,7 +152,7 @@ local function parseVersion(response)
         printJson(toJson(tbl))
     else
         if printUpToDateMsg then
-            printJson('{"text":"Just Lean 3: The script is up to date.","color":"green"}')
+            printJson('{"text":"[Just Lean 3]: JL3 is up to date.","color":"green"}')
         end
     end
 end
