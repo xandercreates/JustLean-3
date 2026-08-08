@@ -61,9 +61,10 @@ end
 ---@class JustLean3
 local jl3 = {}
 jl3.active = {} -- everything that's currently updating goes here
-config:setName(avatar:getName()..".jl3_cache")
+---config:setName("jl3_cache") --uncomment if you need this, maybe even rename it
 
 local getUpdateMsges = config:load("jl3updOptIn")
+--log(getUpdateMsges)
 local showAgainOrNo = config:load("jl3DNSA")
 local printNetworkOffMsg = false
 local printUpToDateMsg = true
@@ -75,7 +76,7 @@ if getUpdateMsges == nil then
     printJson(optinout)
 end
 
-local _VERSION = "3.0.4"
+local _VERSION = "3.0.5"
 local versionFuture = nil
 
 if host:isHost() then
