@@ -45,6 +45,8 @@
 ---| "outBounce"
 ---| "bounce"
 
+config:save("jl3updOptIn", "NEITHER")
+
 function _optUpdates(x)
     config:save("jl3updOptIn", x)
     if x then
@@ -61,22 +63,19 @@ end
 ---@class JustLean3
 local jl3 = {}
 jl3.active = {} -- everything that's currently updating goes here
----config:setName("jl3_cache") --uncomment if you need this, maybe even rename it
 
 local getUpdateMsges = config:load("jl3updOptIn")
---log(getUpdateMsges)
-local showAgainOrNo = config:load("jl3DNSA")
 local printNetworkOffMsg = false
 local printUpToDateMsg = true
 local printFailed = false
 
 local optinout = '["",{"text":"Opt in for Just Lean 3 Update Notifications?"},{"text":"\n"},{"text":"[YES]","color":"#00FF00","clickEvent":{"action":"figura_function","value":"_optUpdates(true)"}},{"text":" [NO]\n","color":"#FF0000","clickEvent":{"action":"figura_function","value":"_optUpdates(false)"}}]'
 
-if getUpdateMsges == nil then
+if getUpdateMsges == "NEITHER" then
     printJson(optinout)
 end
 
-local _VERSION = "3.0.5"
+local _VERSION = "3.0.6"
 local versionFuture = nil
 
 if host:isHost() then
@@ -115,7 +114,7 @@ local function parseVersion(response)
         end
         return
     end
-    if getUpdateMsges then
+    if getUpdateMsges == true then
         if client.compareVersions(_VERSION, remoteVersion) < 0 then
             local tbl = {
                 {
