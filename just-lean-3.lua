@@ -50,7 +50,7 @@ local jl3 = {}
 
 jl3.active = {} -- everything that's currently updating goes here
 
-local raw_Y = 0
+
 local sin, cos, lerp, clamp, abs = math.sin, math.cos, math.lerp, math.clamp, math.abs
 local logar, exp, sqrt = math.log, math.exp, math.sqrt
 local vec3 = vectors.vec3
@@ -61,6 +61,8 @@ local DT = 0.05
 local WEIGHT_RATE = 14
 
 local raw = base
+local raw_Y = base.y
+local l_rY = raw_Y
 local sneaking = false
 local riding = false
 local swim = false
@@ -207,6 +209,9 @@ jl3.settings = {
     armCurve = "smooth",        --same deal for arms
     legCurve = "smooth",        --and legs
     _zstr = 0.1,                --body tilt
+    sway_str_x = 1,
+    sway_str_y = 1,
+    sway_str_z = -1
 }
 
 function jl3:getActiveTable()
@@ -306,8 +311,9 @@ local extras_count = 0
 ---@param dobreathe boolean
 ---@param dospring boolean
 ---@param in_curve ValidCurves
+---@param doshimmy boolean
 ---@return table
-function jl3.lean:new(mode, part, speed, pivot, enabled, constraints, strength, dobreathe, dospring, in_curve, axis_mask)
+function jl3.lean:new(mode, part, speed, pivot, enabled, constraints, strength, dobreathe, dospring, in_curve, axis_mask, doshimmy)
     local self = setmetatable({}, lean)
     self.type = "LEAN"
     self.id = torso_count + 1
@@ -333,6 +339,10 @@ function jl3.lean:new(mode, part, speed, pivot, enabled, constraints, strength, 
     self._rot = base
     self.r_rot = base
     self.dobreathe = dobreathe == nil and true or dobreathe
+    self.doshimmy = doshimmy == nil and false or doshimmy
+    self.shimmy = base
+    self._shimmy = base
+    self.stop_shimmy = false
     self._settled = false
     table.insert(jl3.active, self)
     torso_count = torso_count + 1
@@ -342,13 +352,18 @@ end
 function lean:tick()
     if self:stepWeight() then return end
     self._rot = self.rot
+    self._shimmy = self.shimmy
     local s = jl3.settings
     local rotTarget, pivotTarget
+    local sway_r
     if self.disabled then
         rotTarget = base
         pivotTarget = self.base_pivot
     else
-        local zRot = raw.y * s._zstr * leanScale
+        local x_damp = clamp(1 - abs(raw.x) / 90, 0, 1)
+        --local y_damp = clamp(1 - abs(raw.y) / 90, 0, 1)
+        --log(y_damp)
+        local zRot = (raw.y * s._zstr * leanScale) * x_damp
         local calcX, calcY, calcZ = 0, 0, 0
         local calc
         if self.mode == MODE_STRENGTH then
@@ -364,7 +379,13 @@ function lean:tick()
             calcY = clamp(raw.y, self.constraints[2][1], self.constraints[2][2]) * targetVel * self.strength.y * leanScale
             calcZ = zRot * self.strength.z * leanScale
         end
-        local turnZ = clamp(turnLean * s.turnLeanStrength, -s.turn_z, s.turn_z)
+        local ly = l_rY * x_damp
+        local avg_z = (not player:getVehicle()) and self.doshimmy and (ly * 0.02) or 0 ---fixed, adjusted, and approximated
+        local avg_x = (not player:getVehicle()) and self.doshimmy and (ly * 0.05) or 0
+
+        sway_r = self.doshimmy and vec3(avg_x, abs(ly * 0.07) * -0.01, avg_z * 0.5) * vec3(jl3.settings.sway_str_x, jl3.settings.sway_str_y, jl3.settings.sway_str_z) or self.stop_shimmy and base or base
+
+        local turnZ = clamp((turnLean * s.turnLeanStrength), -s.turn_z, s.turn_z)
 
         local multX = sneaking and 0.1 or 1
         local multY = sneaking and 0.5 or 1
@@ -382,6 +403,7 @@ function lean:tick()
         )
     end
     self._pivot = self.pivot
+    self.shimmy = sperp(self.shimmy, sway_r, self.speed, curves[self.interp_curve], self.axis_mask)
     if self.do_spring then
         self.pivot, self.pivot_vel = spring(self.pivot, pivotTarget, self.pivot_vel, self.speed, s.leanDamping)
         self.rot, self.rot_vel = spring(self.rot, rotTarget, self.rot_vel, self.speed, s.leanDamping)
@@ -396,8 +418,10 @@ function lean:render(delta)
     self.r_rot = lerp(self._rot, self.rot, delta) * self._w
     self.f_pivot = lerp(self._pivot, self.pivot, delta)
     local l_pivot = lerp(self.base_pivot, self.f_pivot, self._w)
+    local l_sway = lerp(self._shimmy, self.shimmy, delta)
     if self.part then
         self.part:setPivot(l_pivot):setOffsetRot(self.r_rot)
+        self.part:setPos(l_sway)
     end
 end
 
@@ -445,7 +469,6 @@ function head:tick()
         local rawX, rawY = raw.x, raw.y
         local leanX, leanY, leanZ = self.lean.x, self.lean.y, self.lean.z
         
-        -- Safely extract strength as primitives (whether it's a number or vec3)
         local st = self.strength
         local stX = type(st) == "number" and st or st.x
         local stY = type(st) == "number" and st or st.y
@@ -530,7 +553,6 @@ function arms:tick()
                 calcX = ((-raw.x * self.strength.x + (raw.y * self.strength.z)) * targetVel) - armBreathe
             end
         end
-        -- Only construct the vector once we know the final X value
         calc = vec3(calcX * leanScale, 0, 0)
     end
     self._rot = self.rot
@@ -551,7 +573,7 @@ end
 ---@param enabled boolean
 ---@param strength number|Vector3
 ---@return table
-function jl3.legs:new(side, part, speed, enabled, strength)
+function jl3.legs:new(side, part, speed, enabled, strength, doshimmy)
     local self = setmetatable({}, legs)
     self.type = "LEG"
     self.id = leg_count + 1
@@ -569,6 +591,7 @@ function jl3.legs:new(side, part, speed, enabled, strength)
     self.pos = base
     self._pos = base
     self.r_pos = base
+    self.doshimmy = doshimmy == nil and false or doshimmy
     self._settled = false
     table.insert(jl3.active, self)
     leg_count = leg_count + 1
@@ -578,13 +601,26 @@ end
 function legs:tick()
     if self:stepWeight() then return end
     local _crX, _crZ, _calPosX, _calPosZ = 0, 0, 0, 0
+    
+    local lsR = 0
+    local lsP = 0
     if not self.disabled then
         local crX, crZ = 0, 0
         local calPosX, calPosZ = 0, 0
-        local sX, sZ = self.strength.x, self.strength.z
-        local lbx, lbz = breathe.x * 0.2, breathe.z * 0.5
         local x_damp = clamp(1 - abs(raw.x) / 90, 0, 1)
         local dY = raw_Y * x_damp
+        local smooth_lry = l_rY * x_damp
+        local stateMult = sneaking and 0.5 or 1.0
+        if self.doshimmy and not player:getVehicle() then
+            lsR = (-smooth_lry * 0.2) * stateMult
+            lsP = (smooth_lry * 0.05) * stateMult
+        else
+            lsR = 0
+            lsP = 0
+        end
+        local sX, sZ = self.strength.x, self.strength.z
+        local lbx, lbz = breathe.x * 0.2, breathe.z * 0.5
+
         if self.side == LEFT then
             if sneaking then
                 crX = (dY * 0.0714285) + lbx
@@ -614,8 +650,8 @@ function legs:tick()
     self._rot = self.rot
     self._pos = self.pos
     local curve = curves[jl3.settings.legCurve]
-    self.rot = sperp(self.rot, vec3(_crX, 0, _crZ), self.speed, curve)
-    self.pos = sperp(self.pos, vec3(_calPosX, 0, _calPosZ), self.speed, curve)
+    self.rot = sperp(self.rot, vec3(_crX, 0, _crZ + lsR), self.speed, curve)
+    self.pos = sperp(self.pos, vec3(_calPosX + lsP, 0, _calPosZ), self.speed, curve)
 end
 
 function legs:render(delta)
@@ -751,6 +787,7 @@ function events.tick()
     local systime = client.getSystemTime() * 0.001
     isSableLoaded = client.isModLoaded("sable")
     local t = sin(systime * 1.25)
+    
     local vel
     if isSableLoaded then
         local x, y, z = table.unpack(player:getNbt().Motion)
@@ -782,6 +819,9 @@ function events.tick()
     ) + offset
 
     raw_Y = wrap(headRot.y)
+
+    l_rY = lerp(l_rY, raw_Y, 1)
+
     targetVel = math.max(0.3, 1.0 - (speed * 0.16))
 
     -- Turn lean: cross product of look direction x velocity
