@@ -1,7 +1,7 @@
 -- Just Lean 3
 -- DEV ENV: Figura 0.1.6, Lua 5.2 (LuaJ, Sandboxed)
 
-local _VERSION = "3.0.9"
+local _VERSION = "3.1.0"
 
 ---@alias ValidModes
 ---|1 STRENGTH
@@ -269,7 +269,8 @@ jl3.settings = {
     _zstr = 0.1,                --body tilt
     sway_str_x = 1,
     sway_str_y = 1,
-    sway_str_z = -1
+    sway_str_z = -1,
+    stop_shimmy = false --should be able to dynamically control this
 }
 
 function jl3:getActiveTable()
@@ -401,7 +402,6 @@ function jl3.lean:new(mode, part, speed, pivot, enabled, constraints, strength, 
     self.damp_shimmy = damp_shimmy == nil and false or damp_shimmy
     self.shimmy = base
     self._shimmy = base
-    self.stop_shimmy = false
     self._settled = false
     table.insert(jl3.active, self)
     torso_count = torso_count + 1
@@ -442,7 +442,7 @@ function lean:tick()
         local avg_z = (not player:getVehicle()) and self.doshimmy and (ly * 0.02) or 0 ---fixed, adjusted, and approximated
         local avg_x = (not player:getVehicle()) and self.doshimmy and (ly * 0.05) or 0
 
-        sway_r = self.doshimmy and vec3(avg_x, abs(ly * 0.07) * -0.01, avg_z * 0.5) * vec3(jl3.settings.sway_str_x, jl3.settings.sway_str_y, jl3.settings.sway_str_z) or self.stop_shimmy and base or base
+        sway_r = self.doshimmy and vec3(avg_x, abs(ly * 0.07) * -0.01, avg_z * 0.5) * vec3(jl3.settings.sway_str_x, jl3.settings.sway_str_y, jl3.settings.sway_str_z) or jl3.settings.stop_shimmy and base or base
 
         local turnZ = clamp((turnLean * s.turnLeanStrength), -s.turn_z, s.turn_z)
 
@@ -671,7 +671,7 @@ function legs:tick()
         local dY = raw_Y * (self.damp_shimmy and x_damp or 1)
         local smooth_lry = (l_rY * x_damp) * swayMult
         local stateMult = sneaking and 0.5 or 1.0
-        if self.doshimmy and not player:getVehicle() then
+        if self.doshimmy and (not player:getVehicle()) and (not jl3.settings.stop_shimmy) then
             lsR = (-smooth_lry * 0.2) * stateMult
             lsP = (smooth_lry * 0.05) * stateMult
         else
