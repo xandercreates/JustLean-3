@@ -1,7 +1,7 @@
 -- Just Lean 3
 -- DEV ENV: Figura 0.1.6, Lua 5.2 (LuaJ, Sandboxed)
 
-local _VERSION = "3.0.8"
+local _VERSION = "3.0.9"
 
 ---@alias ValidModes
 ---|1 STRENGTH
@@ -371,7 +371,7 @@ local extras_count = 0
 ---@param in_curve ValidCurves
 ---@param doshimmy boolean
 ---@return table
-function jl3.lean:new(mode, part, speed, pivot, enabled, constraints, strength, dobreathe, dospring, in_curve, axis_mask, doshimmy)
+function jl3.lean:new(mode, part, speed, pivot, enabled, constraints, strength, dobreathe, dospring, in_curve, axis_mask, doshimmy, damp_shimmy)
     local self = setmetatable({}, lean)
     self.type = "LEAN"
     self.id = torso_count + 1
@@ -398,6 +398,7 @@ function jl3.lean:new(mode, part, speed, pivot, enabled, constraints, strength, 
     self.r_rot = base
     self.dobreathe = dobreathe == nil and true or dobreathe
     self.doshimmy = doshimmy == nil and false or doshimmy
+    self.damp_shimmy = damp_shimmy == nil and false or damp_shimmy
     self.shimmy = base
     self._shimmy = base
     self.stop_shimmy = false
@@ -421,7 +422,7 @@ function lean:tick()
         local x_damp = clamp(1 - abs(raw.x) / 90, 0, 1)
         --local y_damp = clamp(1 - abs(raw.y) / 90, 0, 1)
         --log(y_damp)
-        local zRot = (raw.y * s._zstr * leanScale) * x_damp
+        local zRot = (raw.y * s._zstr * leanScale) * (self.damp_shimmy and x_damp or 1)
         local calcX, calcY, calcZ = 0, 0, 0
         local calc
         if self.mode == MODE_STRENGTH then
@@ -631,7 +632,7 @@ end
 ---@param enabled boolean
 ---@param strength number|Vector3
 ---@return table
-function jl3.legs:new(side, part, speed, enabled, strength, doshimmy)
+function jl3.legs:new(side, part, speed, enabled, strength, doshimmy, damp_shimmy)
     local self = setmetatable({}, legs)
     self.type = "LEG"
     self.id = leg_count + 1
@@ -650,6 +651,7 @@ function jl3.legs:new(side, part, speed, enabled, strength, doshimmy)
     self._pos = base
     self.r_pos = base
     self.doshimmy = doshimmy == nil and false or doshimmy
+    self.damp_shimmy = damp_shimmy == nil and false or damp_shimmy
     self._settled = false
     table.insert(jl3.active, self)
     leg_count = leg_count + 1
@@ -666,7 +668,7 @@ function legs:tick()
         local crX, crZ = 0, 0
         local calPosX, calPosZ = 0, 0
         local x_damp = clamp(1 - abs(raw.x) / 90, 0, 1)
-        local dY = raw_Y * x_damp
+        local dY = raw_Y * (self.damp_shimmy and x_damp or 1)
         local smooth_lry = (l_rY * x_damp) * swayMult
         local stateMult = sneaking and 0.5 or 1.0
         if self.doshimmy and not player:getVehicle() then
