@@ -1,7 +1,7 @@
 -- Just Lean 3
 -- DEV ENV: Figura 0.1.6, Lua 5.2 (LuaJ, Sandboxed)
 
-local _VERSION = "3.0.7"
+local _VERSION = "3.0.8"
 
 ---@alias ValidModes
 ---|1 STRENGTH
@@ -453,7 +453,7 @@ function lean:tick()
         local bY = self.dobreathe and breathe.y or 0
         local bZ = self.dobreathe and breathe.z or 0
 
-        pivotTarget = self.base_pivot + (sneaking and (vanilla_model.BODY:getOriginPos() * 1.875) or base)
+        pivotTarget = self.base_pivot
         rotTarget = vec3(
             (calcX * multX) + bX,
             (calcY * multY) + bY,
