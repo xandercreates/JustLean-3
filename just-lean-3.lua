@@ -2,7 +2,7 @@
 -- DEV ENV: Figura 0.1.6, Lua 5.2 (LuaJ, Sandboxed)
 
 local _VERSION = "3.1.1"
-config:setName("Loader")
+
 ---@alias ValidModes
 ---|1 STRENGTH
 ---|2 CLAMPED
