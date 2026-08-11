@@ -1,7 +1,7 @@
 -- Just Lean 3
 -- DEV ENV: Figura 0.1.6, Lua 5.2 (LuaJ, Sandboxed)
 
-local _VERSION = "3.1.1"
+local _VERSION = "3.1.2"
 
 ---@alias ValidModes
 ---|1 STRENGTH
@@ -270,7 +270,7 @@ jl3.settings = {
     sway_str_x = 1,
     sway_str_y = 1,
     sway_str_z = -1,
-    stop_shimmy = true --should be able to dynamically control this
+    stop_shimmy = false --should be able to dynamically control this
 }
 
 function jl3:getActiveTable()
