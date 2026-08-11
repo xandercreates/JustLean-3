@@ -668,8 +668,8 @@ function legs:tick()
         local crX, crZ = 0, 0
         local calPosX, calPosZ = 0, 0
         local x_damp = clamp(1 - abs(raw.x) / 90, 0, 1)
-        local dY = raw_Y * (self.damp_shimmy and x_damp or 1)
-        local smooth_lry = (l_rY * x_damp) * swayMult
+        local dY = raw_Y * x_damp
+        local smooth_lry = (l_rY * (self.damp_shimmy and x_damp or 1)) * swayMult
         local stateMult = sneaking and 0.5 or 1.0
         if self.doshimmy and not jl3.settings.stop_shimmy and not player:getVehicle() then
             lsR = (-smooth_lry * 0.2) * stateMult
