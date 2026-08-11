@@ -15,5 +15,3 @@ local left_arm = JustLean3.arms:new(1, leftarm, 0.5, true, vec(0.2,1,0.2))
 local right_arm = JustLean3.arms:new(2, rightarm, 0.5, true, vec(0.2,1,0.2))
 local left_leg = JustLean3.legs:new(1, leftleg, 0.5, true, vec(1, 0.5, 0.1), true)
 local right_leg = JustLean3.legs:new(2, rightleg, 0.5, true, vec(1, 0.5, 0.1), true)
-
-    --error()

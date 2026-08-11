@@ -1,7 +1,7 @@
 -- Just Lean 3
 -- DEV ENV: Figura 0.1.6, Lua 5.2 (LuaJ, Sandboxed)
 
-local _VERSION = "3.1.2"
+local _VERSION = "3.1.3"
 
 ---@alias ValidModes
 ---|1 STRENGTH
@@ -185,6 +185,10 @@ local curves = {
 }
 
 local function sperp(curr, tgt, speed, curve_data, axis_mask)
+    --log(tgt, curr)
+    -- if tgt == nil then
+    --     print("tgt nil, From Object Type: "..(type or "Not Specified"))
+    -- end
     local dx, dy, dz = tgt.x - curr.x, tgt.y - curr.y, tgt.z - curr.z
     local dist = math.sqrt(dx*dx + dy*dy + dz*dz) 
     
@@ -305,9 +309,6 @@ function api:disable()
     self.disabled = true
     self.enabled = false
     self._settled = false
-    if self.type == "LEAN" then
-        self.rot = base
-    end
     return self
 end
 
@@ -393,10 +394,13 @@ function jl3.lean:new(mode, part, speed, pivot, enabled, constraints, strength, 
     self._pivot = base
     self.pivot = pivot and pivot or (part and part:getPivot() or base)
     self.pivot_vel = base
-    self.base_pivot = self.pivot
+    self.base_pivot = self.pivot or base
     self.f_pivot = self.pivot
     self._rot = base
     self.r_rot = base
+    self.r_t = base
+    self.sway_t = base
+    self.pvt_t = base
     self.dobreathe = dobreathe == nil and true or dobreathe
     self.doshimmy = doshimmy == nil and false or doshimmy
     self.damp_shimmy = damp_shimmy == nil and false or damp_shimmy
@@ -413,18 +417,17 @@ function lean:tick()
     self._rot = self.rot
     self._shimmy = self.shimmy
     local s = jl3.settings
-    local rotTarget, pivotTarget
-    local sway_r
+    
     if self.disabled then
-        rotTarget = base
-        pivotTarget = self.base_pivot
+        self.r_t = base
+        self.pvt_t = self.base_pivot or base
+        self.sway_t = base
     else
         local x_damp = clamp(1 - abs(raw.x) / 90, 0, 1)
         --local y_damp = clamp(1 - abs(raw.y) / 90, 0, 1)
         --log(y_damp)
-        local zRot = (raw.y * s._zstr * leanScale) * (self.damp_shimmy and x_damp or 1)
+        local zRot = (raw.y * s._zstr * leanScale)
         local calcX, calcY, calcZ = 0, 0, 0
-        local calc
         if self.mode == MODE_STRENGTH then
             calcX = raw.x * targetVel * self.strength.x * leanScale
             calcY = raw.y * self.strength.y * leanScale
@@ -438,11 +441,6 @@ function lean:tick()
             calcY = clamp(raw.y, self.constraints[2][1], self.constraints[2][2]) * targetVel * self.strength.y * leanScale
             calcZ = zRot * self.strength.z * leanScale
         end
-        local ly = (l_rY * x_damp) * swayMult
-        local avg_z = (not player:getVehicle()) and self.doshimmy and (ly * 0.02) or 0 ---fixed, adjusted, and approximated
-        local avg_x = (not player:getVehicle()) and self.doshimmy and (ly * 0.05) or 0
-
-        sway_r = (self.doshimmy and not jl3.settings.stop_shimmy) and vec3(avg_x, abs(ly * 0.07) * -0.01, avg_z * 0.5) * vec3(jl3.settings.sway_str_x, jl3.settings.sway_str_y, jl3.settings.sway_str_z) or base
 
         local turnZ = clamp((turnLean * s.turnLeanStrength), -s.turn_z, s.turn_z)
 
@@ -454,21 +452,25 @@ function lean:tick()
         local bY = self.dobreathe and breathe.y or 0
         local bZ = self.dobreathe and breathe.z or 0
 
-        pivotTarget = self.base_pivot
-        rotTarget = vec3(
+        self.pvt_t = self.base_pivot
+        self.r_t = vec3(
             (calcX * multX) + bX,
             (calcY * multY) + bY,
             (calcZ * multZ) + bZ + turnZ
         )
+        local ly = (l_rY * (self.damp_shimmy and x_damp or 1)) * swayMult
+        local avg_z = ((not player:getVehicle()) and self.doshimmy and (ly * 0.02) or 0)
+        local avg_x = ((not player:getVehicle()) and self.doshimmy and (ly * 0.05) or 0)
+        self.sway_t = (self.doshimmy and not jl3.settings.stop_shimmy) and vec3(avg_x, abs(ly * 0.07) * -0.01, avg_z * 0.5) * vec3(jl3.settings.sway_str_x, jl3.settings.sway_str_y, jl3.settings.sway_str_z) or base
     end
     self._pivot = self.pivot
-    self.shimmy = sperp(self.shimmy, sway_r, self.speed, curves[self.interp_curve], self.axis_mask)
+    self.shimmy = sperp(self.shimmy, self.sway_t, self.speed, curves[self.interp_curve], self.axis_mask)
     if self.do_spring then
-        self.pivot, self.pivot_vel = spring(self.pivot, pivotTarget, self.pivot_vel, self.speed, s.leanDamping)
-        self.rot, self.rot_vel = spring(self.rot, rotTarget, self.rot_vel, self.speed, s.leanDamping)
+        self.pivot, self.pivot_vel = spring(self.pivot, self.pvt_t, self.pivot_vel, self.speed, s.leanDamping)
+        self.rot, self.rot_vel = spring(self.rot, self.r_t, self.rot_vel, self.speed, s.leanDamping)
     else
-        self.rot = sperp(self.rot, rotTarget, self.speed, curves[self.interp_curve], self.axis_mask)
-        self.pivot = sperp(self.pivot, pivotTarget, self.speed, curves[self.interp_curve], self.axis_mask)
+        self.rot = sperp(self.rot, self.r_t, self.speed, curves[self.interp_curve], self.axis_mask)
+        self.pivot = sperp(self.pivot, self.pvt_t, self.speed, curves[self.interp_curve], self.axis_mask)
     end
 end
 
