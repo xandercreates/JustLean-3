@@ -1,7 +1,7 @@
 -- Just Lean 3
 -- DEV ENV: Figura 0.1.6, Lua 5.2 (LuaJ, Sandboxed)
 
-local _VERSION = "3.1.3"
+local _VERSION = "3.1.4"
 
 ---@alias ValidModes
 ---|1 STRENGTH
@@ -148,6 +148,10 @@ local function outBounce(t)
     return (t < 1 / d1) and (n1 * t * t) or (t < 2 / d1) and (n1 * (t - 1.5 / d1) * (t - 1.5 / d1) + 0.75) or (t < 2.5 / d1) and (n1 * (t - 2.25 / d1) * (t - 2.25 / d1) + 0.9375) or (n1 * (t - 2.625 / d1) * (t - 2.625 / d1) + 0.984375)
 end
 
+---@class Curves
+---@field [ValidCurves] fun(t:number):number
+
+---@type Curves
 local curves = {
     smooth = function(t) return t * t * (3 - 2 * t) end,
     linear = function(t) return t end,
@@ -246,7 +250,6 @@ math.sperp = sperp
 math.spring = spring
 math.damp = damp
 math.curves = curves
-
 
 local MODE_STRENGTH = 1
 local MODE_CLAMPED = 2
