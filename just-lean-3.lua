@@ -10,7 +10,7 @@
 ---@diagnostic disable: duplicate-doc-field
 ---@diagnostic disable: duplicate-doc-alias
 
-local _VERSION = "3.1.5"
+local _VERSION = "3.1.6"
 
 ---@alias ValidModes
 ---|1 STRENGTH
@@ -65,14 +65,12 @@ local versionFuture = nil
 
 if host:isHost() then
     local optInState = config:load("jl3UpdateOptIn")
-    
     if optInState == nil then
         local prompt = '["",{"text":"[Just Lean 3]: Opt in for update notifications? "},{"text":"[YES]","color":"green","clickEvent":{"action":"figura_function","value":"_optUpdates(true)"}},{"text":" "},{"text":"[NO]","color":"red","clickEvent":{"action":"figura_function","value":"_optUpdates(false)"}}]'
         printJson(prompt)
     elseif optInState == true then
         if net:isNetworkingAllowed() and net:isLinkAllowed(rawUrl) and net.http then
             versionFuture = net.http:request(rawUrl):send()
-            --log(versionFuture)
         end
     end
 end
@@ -140,10 +138,6 @@ local lrY = 0.07142857142
 local lpZ = 0.025
 local lspZ = 0.25
 
-
-local systime = client.getSystemTime()
-local getsystime = client.getSystemTime
-local delta = 0
 local raw = base
 local raw_Y = base.y
 local l_rY = raw_Y
@@ -208,48 +202,18 @@ local curves = {
     bounce = function(t) return t < 0.5 and (1 - outBounce(1 - 2 * t)) / 2 or (1 + outBounce(2 * t - 1)) / 2 end
 }
 
-local function sperp(curr, tgt, speed, curve_data, axis_mask)
-    local dx, dy, dz = tgt.x - curr.x, tgt.y - curr.y, tgt.z - curr.z
-    local dist = math.sqrt(dx*dx + dy*dy + dz*dz) 
-    
-    if dist < 0.001 then return tgt end
-    
-    local rawT = clamp((dist / 90) * speed, 0, 1)
-    
-    if axis_mask and type(curve_data) == "function" then
-        local cx = axis_mask.x == 1 and curve_data or curves.linear
-        local cy = axis_mask.y == 1 and curve_data or curves.linear
-        local cz = axis_mask.z == 1 and curve_data or curves.linear
-        
-        local shaped_x = clamp(cx(rawT) * speed, 0, 1)
-        local shaped_y = clamp(cy(rawT) * speed, 0, 1)
-        local shaped_z = clamp(cz(rawT) * speed, 0, 1)
-        return vec(
-            lerp(curr.x, tgt.x, shaped_x),
-            lerp(curr.y, tgt.y, shaped_y),
-            lerp(curr.z, tgt.z, shaped_z)
-        )
-        
-    elseif type(curve_data) == "table" then
-        local cx = curve_data.x or curves.linear
-        local cy = curve_data.y or curves.linear
-        local cz = curve_data.z or curves.linear
-        
-        local shaped_x = clamp(cx(rawT) * speed, 0, 1)
-        local shaped_y = clamp(cy(rawT) * speed, 0, 1)
-        local shaped_z = clamp(cz(rawT) * speed, 0, 1)
-        
-        return vec(
-            lerp(curr.x, tgt.x, shaped_x),
-            lerp(curr.y, tgt.y, shaped_y),
-            lerp(curr.z, tgt.z, shaped_z)
-        )
-        
-    else
-        local extra = curve_data and curve_data(rawT) or curves.linear(rawT)
-        local shaped = clamp((1 - extra) * speed, 0, 1)
-        return lerp(curr, tgt, shaped)
-    end
+
+
+---@param a number|Vector3
+---@param b number|Vector3
+---@param rate number
+---@param curve ValidModes
+---@return number|Vector3
+local function ease(a, b, rate, curve)
+    local dist = (b - a):length()
+    local progress = clamp(dist, 0, 1) --dividing by distance just didnt work out, it was too slow
+    local shapedRate = curves[curve](progress) * rate
+    return a + (b - a) * shapedRate
 end
 
 local function spring(curr, tgt, vel, stiff, dampen)
@@ -257,17 +221,11 @@ local function spring(curr, tgt, vel, stiff, dampen)
     return curr + vel, vel
 end
 
-local function damp(current, target, rate, dt)
-    local decay = math.clamp(rate, 0, 1) * 25
-    return target+(current-target) * exp(-decay * dt)
-end
-
 
 
 --added to mathlib in case anyone wants to use the math functions elsewhere without having to manually copy pasting them
-math.sperp = sperp 
 math.spring = spring
-math.damp = damp
+math.ease = ease
 math.curves = curves
 
 local MODE_STRENGTH = 1
@@ -297,7 +255,7 @@ jl3.settings = {
     turnLeanStiff = 0.5,
     turnLeanStrength = 40,
     turn_z = 15,
-    leanDamping = 0.575,
+    leanDamping = 0.5,
     headCurve = "smooth",
     armCurve = "smooth",
     legCurve = "smooth",
@@ -362,7 +320,7 @@ end
 function api:stepWeight()
     local targetW = (self.enabled and self.weight) or 0
     local w_r = clamp(wR, 0, 1) * 25
-    self._w = damp(self._w, targetW, w_r, delta)
+    self._w = lerp(self._w, targetW, w_r)
     
     if targetW == 0 and self._w < 0.002 then
         self._w = 0
@@ -433,11 +391,15 @@ function jl3.lean:new(mode, part, speed, pivot, enabled, constraints, strength, 
     self.rot_vel = base
     self.pivot = pivot and pivot or (part and part:getPivot() or base)
     self.pivot_vel = base
+    self.shimmy_vel = base
     self.base_pivot = self.pivot or base
     self.f_pivot = self.pivot
+    self._r = base
     self.r_rot = base
     self.r_t = base
     self.sway_t = base
+    self._p = base
+    self._s = base
     self.pvt_t = base
     self.dobreathe = dobreathe == nil and true or dobreathe
     self.doshimmy = doshimmy == nil and false or doshimmy
@@ -452,8 +414,10 @@ end
 
 function lean:tick()
     if self:stepWeight() then return end
+    self._r = self.rot
+    self._p = self.pivot
+    self._s = self.shimmy
     local s = jl3.settings
-    
     if self.disabled then
         self.r_t = base
         self.pvt_t = self.base_pivot or base
@@ -486,35 +450,36 @@ function lean:tick()
         local bY = self.dobreathe and breathe.y or 0
         local bZ = self.dobreathe and breathe.z or 0
 
-        self.pvt_t = self.base_pivot
+        self.pvt_t = self.base_pivot * self._w
         self.r_t = vec3(
             (calcX * multX) + bX,
             (calcY * multY) + bY,
             (calcZ * multZ) + bZ + turnZ
-        )
+        ) * self._w
         local ly = (l_rY * (self.damp_shimmy and x_damp or 1)) * swayMult
         local avg_z = ((not player:getVehicle()) and self.doshimmy and (ly * szR) or 0)
         local avg_x = ((not player:getVehicle()) and self.doshimmy and (ly * sxR) or 0)
         self.sway_t = (self.doshimmy and not jl3.settings.stop_shimmy) and vec3(avg_x, abs(ly * syR) * sYR, avg_z * sZR) * vec3(jl3.settings.sway_str_x, jl3.settings.sway_str_y, jl3.settings.sway_str_z) or base
     end
-    self.shimmy = sperp(self.shimmy, self.sway_t, self._w, curves[self.interp_curve], self.axis_mask)
+    
     if self.do_spring then
-        self.pivot, self.pivot_vel = spring(self.pivot, self.pvt_t, self.pivot_vel, self._w, s.leanDamping)
-        self.rot, self.rot_vel = spring(self.rot, self.r_t, self.rot_vel, self._w, s.leanDamping)
+        self.pivot, self.pivot_vel = spring(self.pivot, self.pvt_t, self.pivot_vel, self.speed, s.leanDamping)
+        self.rot, self.rot_vel = spring(self.rot, self.r_t, self.rot_vel, self.speed, s.leanDamping)
+        self.shimmy, self.shimmy_vel = spring(self.shimmy, self.sway_t, self.shimmy_vel, self.speed, s.leanDamping)
     else
-        self.rot = sperp(self.rot, self.r_t, self._w, curves[self.interp_curve], self.axis_mask)
-        self.pivot = sperp(self.pivot, self.pvt_t, self._w, curves[self.interp_curve], self.axis_mask)
+        self.rot = ease(self.rot, self.r_t, self.speed, self.interp_curve)
+        self.pivot = ease(self.pivot, self.pvt_t, self.speed, self.interp_curve)
+        self.shimmy = ease(self.shimmy, self.sway_t, self.speed, self.interp_curve)
     end
 end
 
 function lean:render(dt)
     if self._settled then return end
-    self.r_rot = damp(self.r_rot, self.rot, self.speed, dt)
-    self.f_pivot = damp(self.f_pivot, self.pivot, self.speed, dt)
-    self.r_shimmy = damp(self.r_shimmy, self.shimmy, self.speed, dt)
+    self.r_rot = lerp(self._r, self.rot, dt)
+    self.f_pivot = lerp(self._p, self.pivot, dt)
+    self.r_shimmy = lerp(self._s, self.shimmy, dt)
     if self.part then
-        self.part:setPivot(self.f_pivot):setOffsetRot(self.r_rot)
-        self.part:setPos(self.r_shimmy)
+        self.part:setPos(self.r_shimmy):setPivot(self.f_pivot):setOffsetRot(self.r_rot)
     end
 end
 
@@ -538,6 +503,7 @@ function jl3.head:new(mode, part, speed, enabled, constraints, strength, lean_ta
     self.part = part
     self.lean_ref = lean_table
     self.lean = base
+    self._r = base
     self.rot = base
     self.r_rot = base
     self.speed = speed or 1
@@ -551,6 +517,7 @@ end
 
 function head:tick()
     if self:stepWeight() then return end
+    self._r = self.rot
     if self.lean_ref then
         self.lean = self.speed < self.lean_ref.speed and -self.lean_ref.r_rot or -self.lean_ref.rot
     end
@@ -584,12 +551,12 @@ function head:tick()
         end
         calc = vec3(cX, cY, cZ)
     end
-    self.rot = sperp(self.rot, calc, self._w, curves[jl3.settings.headCurve])
+    self.rot = ease(self.rot, calc, self.speed, jl3.settings.headCurve) * self._w
 end
 
 function head:render(dt)
     if self._settled then return end
-    self.r_rot = damp(self.r_rot, self.rot, self.speed, dt)
+    self.r_rot = lerp(self._r, self.rot, dt)
     vHead:setRot(vHead:getOriginRot() * (1 - self._w))
     if self.part then
         self.part:setRot(self.r_rot)
@@ -615,6 +582,7 @@ function jl3.arms:new(side, part, speed, enabled, strength)
     self.disabled = not enabled
     self.weight = 1
     self._w = enabled and 1 or 0
+    self._r = base
     self.rot = base
     self.r_rot = base
     self._settled = false
@@ -625,6 +593,7 @@ end
 
 function arms:tick()
     if self:stepWeight() then return end
+    self._r = self.rot
     local calc
     if self.disabled then
         calc = base
@@ -647,12 +616,12 @@ function arms:tick()
         end
         calc = vec3(calcX * leanScale, 0, 0)
     end
-    self.rot = sperp(self.rot, calc, self._w, curves[jl3.settings.armCurve])
+    self.rot = ease(self.rot, calc, self.speed, jl3.settings.armCurve) * self._w
 end
 
 function arms:render(dt)
     if self._settled then return end
-    self.r_rot = damp(self.r_rot, self.rot, self.speed, dt)
+    self.r_rot = lerp(self._r, self.rot, dt)
     if self.part then
         self.part:setOffsetRot(self.r_rot)
     end
@@ -677,7 +646,9 @@ function jl3.legs:new(side, part, speed, enabled, strength, doshimmy, damp_shimm
     self._w = enabled and 1 or 0
     self.strength = strength
     self.rot = base
+    self._r = base
     self.r_rot = base
+    self._p = base
     self.pos = base
     self.r_pos = base
     self.doshimmy = doshimmy == nil and false or doshimmy
@@ -692,11 +663,12 @@ function legs:tick()
     if self:stepWeight() then return end
     local _crX, _crZ, _calPosX, _calPosZ = 0, 0, 0, 0
     local s = jl3.settings
-    
     local lsR = 0
     local lsP = 0
     local lbx, lby, lbz = breathe.x * s.legBreatheX, breathe.y * s.legBreatheY, breathe.z * s.legBreatheZ
     if not self.disabled then
+        self._r = self.rot
+        self._p = self.pos
         local crX, crZ = 0, 0
         local calPosX, calPosZ = 0, 0
         local x_damp = clamp(1 - abs(raw.x) / 90, 0, 1)
@@ -737,20 +709,20 @@ function legs:tick()
         _crX, _crZ = crX * sX * leanScale, crZ * leanScale
         _calPosX, _calPosZ = calPosX * sX * leanScale, calPosZ * leanScale
     end
-    local curve = curves[s.legCurve]
     local r = vec3(_crX, 0, _crZ + lsR)
     local p = vec3(_calPosX + lsP, 0, _calPosZ)
-    self.rot = sperp(self.rot, r, self._w, curve)
-    self.pos = sperp(self.pos, p, self._w, curve)
+    self.rot = ease(self.rot, r, self.speed, s.legCurve) * self._w
+    self.pos = ease(self.pos, p, self.speed, s.legCurve) * self._w
 end
 
 function legs:render(dt)
     if self._settled then return end
-    self.r_pos = damp(self.r_pos, self.pos, self.speed, dt)
-    self.r_rot = damp(self.r_rot, self.rot, self.speed, dt)
+    self.r_pos = lerp(self._p, self.pos, dt)
+    self.r_rot = lerp(self._r, self.rot, dt)
     if self.part then
-        self.part:setPos(self.r_pos)
-        self.part:setOffsetRot(self.r_rot)
+        self.part
+        :setPos(self.r_pos)
+        :setOffsetRot(self.r_rot)
     end
 end
 
@@ -784,8 +756,10 @@ function jl3.extras:new(mode, part, speed, influence, strength_rot, strength_pos
     self.constraints_rot = constraints_rot
     self.constraints_pos = constraints_pos
     self.id = extras_count + 1
+    self._r = base
     self.rot = base
     self.r_rot = base
+    self._p = base
     self.pos = base
     self.r_pos = base
     self._settled = false
@@ -800,7 +774,8 @@ function extras:tick()
     local this = self.inf_table
     local ipos = this.pos and this.pos or base
     local calc, calc_p
-    
+    self._p = self.pos
+    self._r = self.rot
     if self.disabled then
         calc = base
         calc_p = base
@@ -841,17 +816,18 @@ function extras:tick()
         calc_p = vec3(pX, pY, pZ)
     end
     
-    self.rot = sperp(self.rot, calc, self._w, curves[self.interp_curve])
-    self.pos = sperp(self.pos, calc_p, self._w, curves[self.interp_curve])
+    self.rot = ease(self.rot, calc, self.speed, self.interp_curve)
+    self.pos = ease(self.pos, calc_p, self.speed, self.interp_curve)
 end
 
-function extras:render(dt, fdt)
+function extras:render(dt)
     if self._settled then return end
-    self.r_rot = damp(self.r_rot, self.rot, self.speed, dt)
-    self.r_pos = damp(self.r_pos, self.pos, self.speed, dt)
+    self.r_rot = lerp(self._r, self.rot, dt)
+    self.r_pos = lerp(self._p, self.pos, dt)
     if self.part then
-        self.part:setPos(self.r_pos)
-        self.part:setOffsetRot(self.r_rot)
+        self.part
+        :setPos(self.r_pos)
+        :setOffsetRot(self.r_rot)
     end
 end
 
@@ -932,15 +908,14 @@ function events.tick()
     local dis = turnLean - cross
     turnLean = turnLean - settings.turnLeanStiff * dis
     if settings.useBreathing then
-        breathe = damp(
-        breathe, 
+        breathe = lerp(
+        breathe,
         vec3(
             bt * settings.breatheX,
             abs(bt) * settings.breatheY,
             abs(cos(bt)) * settings.breatheZ
-        ) * settings.breatheStrength, 
-        1, 
-        delta)
+        ) * settings.breatheStrength,
+        settings.breatheSpeed)
     else
         breathe = base
     end
@@ -949,20 +924,9 @@ function events.tick()
     end
 end
 
-do
-    function events.render(_, ctx)
-        if ctx ~= "RENDER" and (ctx ~= "FIRST_PERSON" or ctx ~= "OTHER") then
-            return
-        end
-        local newst = getsystime()
-        delta = (newst - systime) * 0.001
-        systime = newst
-    end
-end
-
-function events.render()
+function events.render(dt)
     for i = 1, #jl3.active do
-        jl3.active[i]:render(delta)
+        jl3.active[i]:render(dt)
     end
 end
 
