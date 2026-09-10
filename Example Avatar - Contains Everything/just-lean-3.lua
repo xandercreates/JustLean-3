@@ -10,7 +10,7 @@
 ---@diagnostic disable: duplicate-doc-field
 ---@diagnostic disable: duplicate-doc-alias
 
-local _VERSION = "3.1.6"
+local _VERSION = "3.1.7"
 
 ---@alias ValidModes
 ---|1 STRENGTH
@@ -848,8 +848,7 @@ end
 
 function events.tick()
     isSableLoaded = client.isModLoaded("sable")
-    local bt = sin(systime * 0.001 * jl3.settings.breatheSpeed)
-    --log(t)
+    local bt = sin(client.getSystemTime() * 0.001 * jl3.settings.breatheSpeed)
     
     if host:isHost() and versionFuture and versionFuture:isDone() then
         local success, response = pcall(function()
@@ -915,7 +914,7 @@ function events.tick()
             abs(bt) * settings.breatheY,
             abs(cos(bt)) * settings.breatheZ
         ) * settings.breatheStrength,
-        settings.breatheSpeed)
+        0.75)
     else
         breathe = base
     end
