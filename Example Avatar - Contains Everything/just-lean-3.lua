@@ -4,13 +4,12 @@
 ---CREDITS:
 ---| Shiji (CommanderShiji @cmdr_shiji) Leg Math Phase 1
 ---| TombstoneTechnician (TombTech @tombstonetechnician) | Raven Corvaire (RavenTheWitch @thewightwitch) Sway Math
----| Freya Holmér (@acegikmo) Better Interpolation (math.expDecay() or damp() in this script)
----| マヌエル (@manuel_2867) Providing a Lua Implementation of the Interpolation Method
+
 
 ---@diagnostic disable: duplicate-doc-field
 ---@diagnostic disable: duplicate-doc-alias
 
-local _VERSION = "3.1.7"
+local _VERSION = "3.1.8"
 
 ---@alias ValidModes
 ---|1 STRENGTH
@@ -220,8 +219,6 @@ local function spring(curr, tgt, vel, stiff, dampen)
     vel = (vel + (tgt - curr) * stiff) * dampen
     return curr + vel, vel
 end
-
-
 
 --added to mathlib in case anyone wants to use the math functions elsewhere without having to manually copy pasting them
 math.spring = spring
