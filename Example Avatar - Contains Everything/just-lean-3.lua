@@ -74,6 +74,7 @@ if host:isHost() then
     end
 end
 
+
 local function parseVersion(response)
     if not config:load("jl3UpdateOptIn") then return end
     
