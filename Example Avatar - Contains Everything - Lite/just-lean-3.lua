@@ -8,7 +8,7 @@
 ---@diagnostic disable: duplicate-doc-field
 ---@diagnostic disable: duplicate-doc-alias
 
-local _VERSION = "3.1.8"
+local _VERSION = "3.1.9"
 
 ---@alias ValidModes
 ---|1 STRENGTH
