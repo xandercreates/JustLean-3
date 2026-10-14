@@ -5,7 +5,6 @@
 ---| Shiji (CommanderShiji @cmdr_shiji) Leg Math Phase 1
 ---| TombstoneTechnician (TombTech @tombstonetechnician) | Raven Corvaire (RavenTheWitch @thewightwitch) Sway Math
 
-
 ---@diagnostic disable: duplicate-doc-field
 ---@diagnostic disable: duplicate-doc-alias
 
@@ -73,7 +72,6 @@ if host:isHost() then
         end
     end
 end
-
 
 local function parseVersion(response)
     if not config:load("jl3UpdateOptIn") then return end

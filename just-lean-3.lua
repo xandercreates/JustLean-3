@@ -4,13 +4,11 @@
 ---CREDITS:
 ---| Shiji (CommanderShiji @cmdr_shiji) Leg Math Phase 1
 ---| TombstoneTechnician (TombTech @tombstonetechnician) | Raven Corvaire (RavenTheWitch @thewightwitch) Sway Math
----| Freya Holmér (@acegikmo) Better Interpolation (math.expDecay() or damp() in this script)
----| マヌエル (@manuel_2867) Providing a Lua Implementation of the Interpolation Method
 
 ---@diagnostic disable: duplicate-doc-field
 ---@diagnostic disable: duplicate-doc-alias
 
-local _VERSION = "3.1.7"
+local _VERSION = "3.1.8"
 
 ---@alias ValidModes
 ---|1 STRENGTH
