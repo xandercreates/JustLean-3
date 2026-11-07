@@ -8,8 +8,10 @@
 
 ---@diagnostic disable: duplicate-doc-field
 ---@diagnostic disable: duplicate-doc-alias
+---@diagnostic disable: missing-fields
+---@diagnostic disable: undefined-field
 
-local _VERSION = "3.1.9"
+local _VERSION = "3.2.0"
 
 ---- PATCH NOTES
 ---| (Hopefully) Fixed a bug that breaks parts after using :disable() and then :enable() - (https://discord.com/channels/1129805506354085959/1485784920696819874/1567775138605301892)
@@ -25,10 +27,24 @@ local _VERSION = "3.1.9"
 ---|1 LEFT
 ---|2 RIGHT
 
+---@class JustLean3.INSTANCE
+---@class JustLean3.CONSTRUCTOR
+---@class JustLean3.ACTIVE_INSTANCES
+---@class JustLean3.TICK
+---@class JustLean3.RENDER
 
 ---@class JustLean3
+---@field lean JustLean3.CONSTRUCTOR
+---@field head JustLean3.CONSTRUCTOR
+---@field arms JustLean3.CONSTRUCTOR
+---@field legs JustLean3.CONSTRUCTOR
+---@field extras JustLean3.CONSTRUCTOR
+
+---@type JustLean3
 local jl3 = {}
 jl3.__type = "JustLean3"
+
+---@type JustLean3.ACTIVE_INSTANCES[]
 jl3.active = {}
 
 local rawUrl = "https://raw.githubusercontent.com/xandercreates/JustLean-3/refs/heads/main/just-lean-3.lua"
@@ -272,8 +288,9 @@ local extras_count = 0
 ---@param dobreathe boolean
 ---@param dospring boolean
 ---@param doshimmy boolean
----@return table[]
-function jl3.lean:new(mode, part, speed, pivot, enabled, constraints, strength, dobreathe, dospring, doshimmy, damp_shimmy)
+---@param damp_yaw? boolean
+---@return JustLean3.INSTANCE[]
+function jl3.lean:new(mode, part, speed, pivot, enabled, constraints, strength, dobreathe, dospring, doshimmy, damp_shimmy, damp_yaw)
     local self = setmetatable({}, lean)
     self.type = "LEAN"
     self.id = torso_count + 1
@@ -287,6 +304,7 @@ function jl3.lean:new(mode, part, speed, pivot, enabled, constraints, strength, 
     self.constraints = constraints or {{-90, 90}, {-90, 90}}
     self.strength = strength
     self.speed = speed or 1
+    self.damp_yaw = damp_yaw and damp_yaw or false
 
     self.rot = base
     self.pivot = pivot or (part and part:getPivot()) or base
@@ -301,9 +319,9 @@ function jl3.lean:new(mode, part, speed, pivot, enabled, constraints, strength, 
     self.shimmy_vel = base
 
     self.base_pivot = self.pivot
-    self.dobreathe = dobreathe ~= false
-    self.doshimmy = doshimmy == true
-    self.damp_shimmy = damp_shimmy == true
+    self.dobreathe = dobreathe and dobreathe or false
+    self.doshimmy = doshimmy and doshimmy or false
+    self.damp_shimmy = damp_shimmy and damp_shimmy or false
     self._settled = false
     table.insert(jl3.active, self)
     torso_count = torso_count + 1
@@ -316,7 +334,7 @@ function lean:tick()
 
     local targetRot, targetPivot, targetShimmy = base, self.base_pivot, base
     if not self.disabled then
-        local x_damp = clamp(1 - abs(raw.x) / 90, 0, 1)
+        local x_damp = self.damp_yaw and clamp(1 - abs(raw.x) / 90, 0, 1) or 1
         local zRot = (raw.y * s._zstr * leanScale)
         local calcX, calcY, calcZ = 0, 0, 0
         if self.mode == MODE_STRENGTH then
@@ -388,8 +406,8 @@ end
 ---@param enabled true
 ---@param constraints table
 ---@param strength number|Vector3
----@param lean_table JustLean3
----@return table[]
+---@param lean_table JustLean3.INSTANCE[]
+---@return JustLean3.INSTANCE[]
 function jl3.head:new(mode, part, speed, enabled, constraints, strength, lean_table)
     local self = setmetatable({}, head)
     self.type = "HEAD"
@@ -465,7 +483,7 @@ end
 ---@param speed number
 ---@param enabled boolean
 ---@param strength number|Vector3
----@return table[]
+---@return JustLean3.INSTANCE[]
 function jl3.arms:new(side, part, speed, enabled, strength)
     local self = setmetatable({}, arms)
     self.type = "ARM"
@@ -525,7 +543,7 @@ end
 ---@param speed number
 ---@param enabled boolean
 ---@param strength number|Vector3
----@return table[]
+---@return JustLean3.INSTANCE[]
 function jl3.legs:new(side, part, speed, enabled, strength, doshimmy, damp_shimmy)
     local self = setmetatable({}, legs)
     self.type = "LEG"
@@ -623,9 +641,8 @@ end
 ---@param constraints_pos table
 ---@param pivot Vector3
 ---@param enabled boolean
----@param in_curve ValidCurves
----@return table[]
-function jl3.extras:new(mode, part, speed, influence, strength_rot, strength_pos, constraints_rot, constraints_pos, pivot, enabled, in_curve)
+---@return JustLean3.INSTANCE[]
+function jl3.extras:new(mode, part, speed, influence, strength_rot, strength_pos, constraints_rot, constraints_pos, pivot, enabled)
     local self = setmetatable({}, extras)
     self.type = "INFLUENCE"
     self.enabled = enabled or true
