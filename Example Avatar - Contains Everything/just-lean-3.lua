@@ -652,7 +652,6 @@ function jl3.extras:new(mode, part, speed, influence, strength_rot, strength_pos
     self.part = part
     self.mode = mode
     self.speed = speed
-    self.interp_curve = in_curve or "smooth"
     self.mode_string = mode == 1 and "STRENGTH" or mode == 2 and "CLAMPED" or mode == 3 and "BOTH"
     self.inf_table = influence
     self.strength_rot = strength_rot
