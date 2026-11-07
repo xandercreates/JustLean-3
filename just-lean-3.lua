@@ -1,14 +1,20 @@
 -- Just Lean 3
--- DEV ENV: Figura 0.1.6, Lua 5.2 (LuaJ, Sandboxed)
 
 ---CREDITS:
 ---| Shiji (CommanderShiji @cmdr_shiji) Leg Math Phase 1
 ---| TombstoneTechnician (TombTech @tombstonetechnician) | Raven Corvaire (RavenTheWitch @thewightwitch) Sway Math
+---| マヌエル (@manuel_2867) Figura Implementation of expDecay from Freya Holmér (https://www.youtube.com/@FreyaHolmer)
+---| Freya Holmér (https://www.youtube.com/@FreyaHolmer) | expDecay Math
 
 ---@diagnostic disable: duplicate-doc-field
 ---@diagnostic disable: duplicate-doc-alias
 
-local _VERSION = "3.1.8"
+local _VERSION = "3.1.9"
+
+---- PATCH NOTES
+---| (Hopefully) Fixed a bug that breaks parts after using :disable() and then :enable() - (https://discord.com/channels/1129805506354085959/1485784920696819874/1567775138605301892)
+---| Removed Ease - Seemed like Bloat. Was a good Idea, but I hardly saw a difference. Will return soon, hopefully.
+---| Once again, replaced lerp with expDecay.
 
 ---@alias ValidModes
 ---|1 STRENGTH
@@ -19,43 +25,10 @@ local _VERSION = "3.1.8"
 ---|1 LEFT
 ---|2 RIGHT
 
----@alias ValidCurves
----| "linear"
----| "smooth"
----| "logarithmic"
----| "inSine"
----| "outSine"
----| "sine"
----| "inQuad"
----| "outQuad"
----| "quad"
----| "inCubic"
----| "outCubic"
----| "cubic"
----| "inQuart"
----| "outQuart"
----| "quart"
----| "inQuint"
----| "outQuint"
----| "quint"
----| "inExpo"
----| "outExpo"
----| "expo"
----| "inCirc"
----| "outCirc"
----| "circ"
----| "inBack"
----| "outBack"
----| "back"
----| "inElastic"
----| "outElastic"
----| "elastic"
----| "inBounce"
----| "outBounce"
----| "bounce"
 
 ---@class JustLean3
 local jl3 = {}
+jl3.__type = "JustLean3"
 jl3.active = {}
 
 local rawUrl = "https://raw.githubusercontent.com/xandercreates/JustLean-3/refs/heads/main/just-lean-3.lua"
@@ -113,20 +86,13 @@ function _optUpdates(state)
     end
 end
 
-local sin, cos, lerp, clamp, abs = math.sin, math.cos, math.lerp, math.clamp, math.abs
+local sin, cos, clamp, abs = math.sin, math.cos, math.clamp, math.abs
 local logar, exp, sqrt = math.log, math.exp, math.sqrt
+local map = math.map
 local vec3 = vectors.vec3
 local vHead = vanilla_model.HEAD
 local base = vec3(0, 0, 0)
 local wR = 0.56
-local pi = 3.141592653589793238462643383279502884197
-local c1 = 1.70158
-local c2 = c1 * 1.525
-local c3 = c1 + 1
-local c4 = (2 * pi) / 3
-local c5 = (2 * pi) / 4.5
-local n1 = 7.5625
-local d1 = 2.75
 local sxR = 0.05
 local szR = 0.02
 local syR = 0.07
@@ -138,7 +104,6 @@ local lspZ = 0.25
 
 local raw = base
 local raw_Y = base.y
-local l_rY = raw_Y
 local sneaking = false
 local riding = false
 local swim = false
@@ -150,81 +115,26 @@ local turnLean = 0
 local isSableLoaded = false
 local leanScale = 1.0
 local offset = vanilla_model.HEAD:getOffsetRot() or vec3(0, 0, 0)
+local st = client.getSystemTime()
+local getst = client.getSystemTime
 
+math.dt = 0
 
-local function wrap(val)
+local function expDecay(a, b, decay, dt)
+    local k = clamp(decay, 0, 1) * 25
+    return b + (a - b) * exp(-k * dt)
+end
+
+local function wrapAngle(val)
     return ((val + 180) % 360) - 180
 end
 
-local function outBounce(t)
-    return (t < 1 / d1) and (n1 * t * t) or (t < 2 / d1) and (n1 * (t - 1.5 / d1) * (t - 1.5 / d1) + 0.75) or (t < 2.5 / d1) and (n1 * (t - 2.25 / d1) * (t - 2.25 / d1) + 0.9375) or (n1 * (t - 2.625 / d1) * (t - 2.625 / d1) + 0.984375)
-end
-
----@class Curves
----@field [ValidCurves] fun(t:number):number t: [0.0 - 1.0]
-
----@type Curves
-local curves = {
-    smooth = function(t) return t * t * (3 - 2 * t) end,
-    linear = function(t) return t end,
-    logarithmic = function(t) return logar(t * (exp(1) - 1) + 1) end,
-    inSine = function(t) return 1 - cos((t * pi) / 2) end,
-    outSine = function(t) return sin((t * pi) / 2) end,
-    sine = function(t) return -(cos(pi * t) - 1) / 2 end,
-    inQuad = function(t) return t * t end,
-    outQuad = function(t) return 1 - (1 - t) * (1 - t) end,
-    quad = function(t) return t < 0.5 and (2 * t * t) or (1 - (-2 * t + 2)^2 / 2) end,
-    inCubic = function(t) return t * t * t end,
-    outCubic = function(t) return 1 - (1 - t)^3 end,
-    cubic = function(t) return t < 0.5 and (4 * t * t * t) or (1 - (-2 * t + 2)^3 / 2) end,
-    inQuart = function(t) return t * t * t * t end,
-    outQuart = function(t) return 1 - (1 - t)^4 end,
-    quart = function(t) return t < 0.5 and (8 * t * t * t * t) or (1 - (-2 * t + 2)^4 / 2) end,
-    inQuint = function(t) return t * t * t * t * t end,
-    outQuint = function(t) return 1 - (1 - t)^5 end,
-    quint = function(t) return t < 0.5 and (16 * t * t * t * t * t) or (1 - (-2 * t + 2)^5 / 2) end,
-    inExpo = function(t) return t == 0 and 0 or 2^(10 * t - 10) end,
-    outExpo = function(t) return t == 1 and 1 or (1 - 2^(-10 * t)) end,
-    expo = function(t) return t == 0 and 0 or t == 1 and 1 or t < 0.5 and (2^(20 * t - 10) / 2) or (2 - 2^(-20 * t + 10)) / 2 end,
-    inCirc = function(t) return 1 - sqrt(1 - (t^2)) end,
-    outCirc = function(t) return sqrt(1 - (t - 1)^2) end,
-    circ = function(t) return t < 0.5 and ((1 - sqrt(1 - (2 * t)^2)) / 2) or (sqrt(1 - (-2 * t + 2)^2) + 1) / 2 end,
-    inBack = function(t) return c3 * t * t * t - c1 * t * t end,
-    outBack = function(t) return 1 + c3 * ((t - 1)^3) + c1 * ((t - 1)^2) end,
-    back = function(t) return t < 0.5 and (((2 * t)^2) * ((c2 + 1) * 2 * t - c2)) / 2 or (((2 * t - 2)^2 * ((c2 + 1) * (t * 2 - 2) + c2) + 2) / 2) end,
-    inElastic = function(t) return t == 0 and 0 or t == 1 and 1 or -(2^(10 * t - 10)) * sin((t * 10 - 10.75) * c4) end,
-    outElastic = function(t) return t == 0 and 0 or t == 1 and 1 or (2^(-10 * t)) * sin((t * 10 - 0.75) * c4) + 1 end,
-    elastic = function(t) return t == 0 and 0 or t == 1 and 1 or t < 0.5 and -((2^(20 * t - 10)) * sin((20 * t - 11.125) * c5)) / 2 or ((2^(-20 * t + 10)) * sin((20 * t - 11.125) * c5)) / 2 + 1 end,
-    outBounce = outBounce,
-    inBounce = function(t) return 1 - outBounce(1 - t) end,
-    bounce = function(t) return t < 0.5 and (1 - outBounce(1 - 2 * t)) / 2 or (1 + outBounce(2 * t - 1)) / 2 end
-}
-
-
-
----@param a number|Vector3
----@param b number|Vector3
----@param rate number
----@param curve ValidModes
----@return number|Vector3
-local function ease(a, b, rate, curve)
-    local dist = (b - a):length()
-    local progress = clamp(dist, 0, 1) --dividing by distance just didnt work out, it was too slow
-    local shapedRate = curves[curve](progress) * rate
-    return a + (b - a) * shapedRate
-end
 
 local function spring(curr, tgt, vel, stiff, dampen)
     vel = (vel + (tgt - curr) * stiff) * dampen
     return curr + vel, vel
 end
 
-
-
---added to mathlib in case anyone wants to use the math functions elsewhere without having to manually copy pasting them
-math.spring = spring
-math.ease = ease
-math.curves = curves
 
 local MODE_STRENGTH = 1
 local MODE_CLAMPED = 2
@@ -240,10 +150,6 @@ jl3.extras = {}
 
 
 ---@class JL3Settings
----@field headCurve ValidCurves
----@field armCurve ValidCurves
----@field legCurve ValidCurves
----@field leanCurve ValidCurves
 jl3.settings = {
     breatheStrength = 1.5,
     breatheSpeed = 1,
@@ -254,10 +160,6 @@ jl3.settings = {
     turnLeanStrength = 40,
     turn_z = 15,
     leanDamping = 0.5,
-    headCurve = "smooth",
-    armCurve = "smooth",
-    legCurve = "smooth",
-    leanCurve = "logarithmic",
     _zstr = 0.1,
     sneakLeanX = 0.1,        -- lean X reduction when sneaking
     sneakLeanY = 0.5,        -- lean Y reduction when sneaking
@@ -272,6 +174,7 @@ jl3.settings = {
     legBreatheZ = 0.5,       -- breathing Z -> leg rotation
     legSwayR = 0.2,          -- yaw sway -> leg rotation R
     legSwayP = 0.05,         -- yaw sway -> leg rotation P
+    __type = "JL3Settings"
 }
 
 function jl3:getActiveTable()
@@ -280,6 +183,7 @@ end
 
 local api = {}
 api.__index = api
+api.__type = "JL_API"
 
 function api:remove()
     for i = #jl3.active, 1, -1 do
@@ -317,8 +221,8 @@ end
 
 function api:stepWeight()
     local targetW = (self.enabled and self.weight) or 0
-    local w_r = clamp(wR, 0, 1) * 25
-    self._w = lerp(self._w, targetW, w_r)
+    local w_r = clamp(wR, 0, 1)
+    self._w = expDecay(self._w, targetW, w_r, 0.05)
     
     if targetW == 0 and self._w < 0.002 then
         self._w = 0
@@ -367,10 +271,9 @@ local extras_count = 0
 ---@param strength Vector3
 ---@param dobreathe boolean
 ---@param dospring boolean
----@param in_curve ValidCurves
 ---@param doshimmy boolean
 ---@return table[]
-function jl3.lean:new(mode, part, speed, pivot, enabled, constraints, strength, dobreathe, dospring, in_curve, doshimmy, damp_shimmy)
+function jl3.lean:new(mode, part, speed, pivot, enabled, constraints, strength, dobreathe, dospring, doshimmy, damp_shimmy)
     local self = setmetatable({}, lean)
     self.type = "LEAN"
     self.id = torso_count + 1
@@ -379,31 +282,28 @@ function jl3.lean:new(mode, part, speed, pivot, enabled, constraints, strength, 
     self.weight = 1
     self._w = enabled and 1 or 0
     self.part = part
-    self.do_spring = dospring and dospring or false
-    self.interp_curve = in_curve and in_curve or jl3.settings.leanCurve
+    self.do_spring = dospring or false
     self.mode = mode
     self.constraints = constraints or {{-90, 90}, {-90, 90}}
     self.strength = strength
     self.speed = speed or 1
+
     self.rot = base
+    self.pivot = pivot or (part and part:getPivot()) or base
+    self.shimmy = base
+
+    self.r_rot = base
+    self.r_pivot = self.pivot
+    self.r_shimmy = base
+
     self.rot_vel = base
-    self.pivot = pivot and pivot or (part and part:getPivot() or base)
     self.pivot_vel = base
     self.shimmy_vel = base
-    self.base_pivot = self.pivot or base
-    self.f_pivot = self.pivot
-    self._r = base
-    self.r_rot = base
-    self.r_t = base
-    self.sway_t = base
-    self._p = base
-    self._s = base
-    self.pvt_t = base
-    self.dobreathe = dobreathe == nil and true or dobreathe
-    self.doshimmy = doshimmy == nil and false or doshimmy
-    self.damp_shimmy = damp_shimmy == nil and false or damp_shimmy
-    self.shimmy = base
-    self.r_shimmy = base
+
+    self.base_pivot = self.pivot
+    self.dobreathe = dobreathe ~= false
+    self.doshimmy = doshimmy == true
+    self.damp_shimmy = damp_shimmy == true
     self._settled = false
     table.insert(jl3.active, self)
     torso_count = torso_count + 1
@@ -412,15 +312,10 @@ end
 
 function lean:tick()
     if self:stepWeight() then return end
-    self._r = self.rot
-    self._p = self.pivot
-    self._s = self.shimmy
     local s = jl3.settings
-    if self.disabled then
-        self.r_t = base
-        self.pvt_t = self.base_pivot or base
-        self.sway_t = base
-    else
+
+    local targetRot, targetPivot, targetShimmy = base, self.base_pivot, base
+    if not self.disabled then
         local x_damp = clamp(1 - abs(raw.x) / 90, 0, 1)
         local zRot = (raw.y * s._zstr * leanScale)
         local calcX, calcY, calcZ = 0, 0, 0
@@ -439,45 +334,51 @@ function lean:tick()
         end
 
         local turnZ = clamp((turnLean * s.turnLeanStrength), -s.turn_z, s.turn_z)
-
         local multX = sneaking and s.sneakLeanX or 1
         local multY = sneaking and s.sneakLeanY or 1
         local multZ = sneaking and s.sneakLeanZ or 1
-
         local bX = self.dobreathe and breathe.x or 0
         local bY = self.dobreathe and breathe.y or 0
         local bZ = self.dobreathe and breathe.z or 0
 
-        self.pvt_t = self.base_pivot * self._w
-        self.r_t = vec3(
+        targetPivot = self.base_pivot * self._w
+        targetRot = vec3(
             (calcX * multX) + bX,
             (calcY * multY) + bY,
             (calcZ * multZ) + bZ + turnZ
         ) * self._w
-        local ly = (l_rY * (self.damp_shimmy and x_damp or 1)) * swayMult
-        local avg_z = ((not player:getVehicle()) and self.doshimmy and (ly * szR) or 0)
-        local avg_x = ((not player:getVehicle()) and self.doshimmy and (ly * sxR) or 0)
-        self.sway_t = (self.doshimmy and not jl3.settings.stop_shimmy) and vec3(avg_x, abs(ly * syR) * sYR, avg_z * sZR) * vec3(jl3.settings.sway_str_x, jl3.settings.sway_str_y, jl3.settings.sway_str_z) or base
+
+        if self.doshimmy and not s.stop_shimmy and not player:getVehicle() then
+            local ly = (raw_Y * (self.damp_shimmy and x_damp or 1)) * swayMult
+            targetShimmy = vec3(ly * sxR, abs(ly * syR) * sYR, ly * szR * sZR)
+                * vec3(s.sway_str_x, s.sway_str_y, s.sway_str_z)
+        end
     end
-    
+
     if self.do_spring then
-        self.pivot, self.pivot_vel = spring(self.pivot, self.pvt_t, self.pivot_vel, self.speed, s.leanDamping)
-        self.rot, self.rot_vel = spring(self.rot, self.r_t, self.rot_vel, self.speed, s.leanDamping)
-        self.shimmy, self.shimmy_vel = spring(self.shimmy, self.sway_t, self.shimmy_vel, self.speed, s.leanDamping)
+        self.rot, self.rot_vel = spring(self.rot, targetRot, self.rot_vel, 1, s.leanDamping)
+        self.pivot, self.pivot_vel = spring(self.pivot, targetPivot, self.pivot_vel, 1, s.leanDamping)
+        self.shimmy, self.shimmy_vel = spring(self.shimmy, targetShimmy, self.shimmy_vel, 1, s.leanDamping)
     else
-        self.rot = ease(self.rot, self.r_t, self.speed, self.interp_curve)
-        self.pivot = ease(self.pivot, self.pvt_t, self.speed, self.interp_curve)
-        self.shimmy = ease(self.shimmy, self.sway_t, self.speed, self.interp_curve)
+        self.rot = targetRot
+        self.pivot = targetPivot
+        self.shimmy = targetShimmy
     end
 end
 
 function lean:render(dt)
     if self._settled then return end
-    self.r_rot = lerp(self._r, self.rot, dt)
-    self.f_pivot = lerp(self._p, self.pivot, dt)
-    self.r_shimmy = lerp(self._s, self.shimmy, dt)
+    if self.do_spring then
+        self.r_rot = self.rot
+        self.r_pivot = self.pivot
+        self.r_shimmy = self.shimmy
+    else
+        self.r_rot = expDecay(self.r_rot, self.rot, self.speed, dt)
+        self.r_pivot = expDecay(self.r_pivot, self.pivot, self.speed, dt)
+        self.r_shimmy = expDecay(self.r_shimmy, self.shimmy, self.speed, dt)
+    end
     if self.part then
-        self.part:setPos(self.r_shimmy):setPivot(self.f_pivot):setOffsetRot(self.r_rot)
+        self.part:setPos(self.r_shimmy):setPivot(self.r_pivot):setOffsetRot(self.r_rot)
     end
 end
 
@@ -515,22 +416,20 @@ end
 
 function head:tick()
     if self:stepWeight() then return end
-    self._r = self.rot
     if self.lean_ref then
         self.lean = self.speed < self.lean_ref.speed and -self.lean_ref.r_rot or -self.lean_ref.rot
     end
-    local calc
     if self.disabled then
-        calc = base
+        self.target_rot = base
     else
         local headBob = breathe.y * 0.3
         local rawX, rawY = raw.x, raw.y
         local leanX, leanY, leanZ = self.lean.x, self.lean.y, self.lean.z
         
-        local st = self.strength
-        local stX = type(st) == "number" and st or st.x
-        local stY = type(st) == "number" and st or st.y
-        local stZ = type(st) == "number" and st or st.z
+        local str = self.strength
+        local stX = type(str) == "number" and str or str.x
+        local stY = type(str) == "number" and str or str.y
+        local stZ = type(str) == "number" and str or str.z
 
         local cX, cY, cZ = 0, 0, 0
 
@@ -547,17 +446,16 @@ function head:tick()
             cY = (clamp(rawY, self.constraints[2][1], self.constraints[2][2]) + leanY) * stY
             cZ = ((rawY * 0.125) + leanZ) * stZ
         end
-        calc = vec3(cX, cY, cZ)
+        self.target_rot = vec3(cX, cY, cZ) * self._w
     end
-    self.rot = ease(self.rot, calc, self.speed, jl3.settings.headCurve) * self._w
 end
 
 function head:render(dt)
     if self._settled then return end
-    self.r_rot = lerp(self._r, self.rot, dt)
+    self.rot = expDecay(self.rot, self.target_rot, self.speed, dt)
     vHead:setRot(vHead:getOriginRot() * (1 - self._w))
     if self.part then
-        self.part:setRot(self.r_rot)
+        self.part:setRot(self.rot)
     end
 end
 
@@ -580,9 +478,8 @@ function jl3.arms:new(side, part, speed, enabled, strength)
     self.disabled = not enabled
     self.weight = 1
     self._w = enabled and 1 or 0
-    self._r = base
+    self.target_rot = base
     self.rot = base
-    self.r_rot = base
     self._settled = false
     table.insert(jl3.active, self)
     arm_count = arm_count + 1
@@ -592,9 +489,8 @@ end
 function arms:tick()
     if self:stepWeight() then return end
     self._r = self.rot
-    local calc
     if self.disabled then
-        calc = base
+        self.target_rot = base
     else
         local armBreathe = breathe.x * 0.15
         local calcX = 0
@@ -612,16 +508,15 @@ function arms:tick()
                 calcX = ((-raw.x * self.strength.x + (raw.y * self.strength.z)) * targetVel) - armBreathe
             end
         end
-        calc = vec3(calcX * leanScale, 0, 0)
+        self.target_rot = vec3(calcX * leanScale, 0, 0) * self._w
     end
-    self.rot = ease(self.rot, calc, self.speed, jl3.settings.armCurve) * self._w
 end
 
 function arms:render(dt)
     if self._settled then return end
-    self.r_rot = lerp(self._r, self.rot, dt)
+    self.rot = expDecay(self.rot, self.target_rot, self.speed, dt)
     if self.part then
-        self.part:setOffsetRot(self.r_rot)
+        self.part:setOffsetRot(self.rot)
     end
 end
 
@@ -644,11 +539,9 @@ function jl3.legs:new(side, part, speed, enabled, strength, doshimmy, damp_shimm
     self._w = enabled and 1 or 0
     self.strength = strength
     self.rot = base
-    self._r = base
-    self.r_rot = base
-    self._p = base
+    self.target_rot = base
+    self.target_pos = base
     self.pos = base
-    self.r_pos = base
     self.doshimmy = doshimmy == nil and false or doshimmy
     self.damp_shimmy = damp_shimmy == nil and false or damp_shimmy
     self._settled = false
@@ -665,14 +558,12 @@ function legs:tick()
     local lsP = 0
     local lbx, lby, lbz = breathe.x * s.legBreatheX, breathe.y * s.legBreatheY, breathe.z * s.legBreatheZ
     if not self.disabled then
-        self._r = self.rot
-        self._p = self.pos
         local crX, crZ = 0, 0
         local calPosX, calPosZ = 0, 0
         local x_damp = clamp(1 - abs(raw.x) / 90, 0, 1)
         local sX, sZ = self.strength.x, self.strength.z
         local dY = raw_Y * x_damp
-        local smooth_lry = (l_rY * (self.damp_shimmy and x_damp or 1)) * swayMult
+        local smooth_lry = (raw_Y * (self.damp_shimmy and x_damp or 1)) * swayMult
         local stateMult = sneaking and 0.5 or 1.0
         if self.doshimmy and not s.stop_shimmy and not player:getVehicle() then
             lsR = (-smooth_lry * s.legSwayR) * stateMult
@@ -707,20 +598,18 @@ function legs:tick()
         _crX, _crZ = crX * sX * leanScale, crZ * leanScale
         _calPosX, _calPosZ = calPosX * sX * leanScale, calPosZ * leanScale
     end
-    local r = vec3(_crX, 0, _crZ + lsR)
-    local p = vec3(_calPosX + lsP, 0, _calPosZ)
-    self.rot = ease(self.rot, r, self.speed, s.legCurve) * self._w
-    self.pos = ease(self.pos, p, self.speed, s.legCurve) * self._w
+    self.target_rot = vec3(_crX, 0, _crZ + lsR) * self._w
+    self.target_pos = vec3(_calPosX + lsP, 0, _calPosZ) * self._w
 end
 
 function legs:render(dt)
     if self._settled then return end
-    self.r_pos = lerp(self._p, self.pos, dt)
-    self.r_rot = lerp(self._r, self.rot, dt)
+    self.pos = expDecay(self.pos, self.target_pos, self.speed, dt)
+    self.rot = expDecay(self.rot, self.target_rot, self.speed, dt)
     if self.part then
         self.part
-        :setPos(self.r_pos)
-        :setOffsetRot(self.r_rot)
+        :setPos(self.pos)
+        :setOffsetRot(self.rot)
     end
 end
 
@@ -754,12 +643,10 @@ function jl3.extras:new(mode, part, speed, influence, strength_rot, strength_pos
     self.constraints_rot = constraints_rot
     self.constraints_pos = constraints_pos
     self.id = extras_count + 1
-    self._r = base
     self.rot = base
-    self.r_rot = base
-    self._p = base
+    self.target_rot = base
     self.pos = base
-    self.r_pos = base
+    self.target_pos = base
     self._settled = false
     self.pivot = type(pivot) == "Vector3" and pivot or (part and part:getPivot() or base)
     extras_count = extras_count + 1
@@ -771,12 +658,9 @@ function extras:tick()
     if self:stepWeight() then return end
     local this = self.inf_table
     local ipos = this.pos and this.pos or base
-    local calc, calc_p
-    self._p = self.pos
-    self._r = self.rot
     if self.disabled then
-        calc = base
-        calc_p = base
+        self.target_rot = base
+        self.target_pos = base
     else
         local crouchMult = player:isCrouching() and 0.5 or 1
         local sr = self.strength_rot
@@ -810,18 +694,15 @@ function extras:tick()
             pY = clamp(ipos.y, self.constraints_pos[1][2], self.constraints_pos[2][2]) * spY
             pZ = clamp(ipos.z, self.constraints_pos[1][3], self.constraints_pos[2][3]) * spZ
         end
-        calc = vec3(rX, rY, rZ)
-        calc_p = vec3(pX, pY, pZ)
+        self.target_rot = vec3(rX, rY, rZ) * self._w
+        self.target_pos = vec3(pX, pY, pZ) * self._w
     end
-    
-    self.rot = ease(self.rot, calc, self.speed, self.interp_curve)
-    self.pos = ease(self.pos, calc_p, self.speed, self.interp_curve)
 end
 
 function extras:render(dt)
     if self._settled then return end
-    self.r_rot = lerp(self._r, self.rot, dt)
-    self.r_pos = lerp(self._p, self.pos, dt)
+    self.rot = expDecay(self.rot, self.target_rot, self.speed, dt)
+    self.pos = expDecay(self.pos, self.target_pos, self.speed, dt)
     if self.part then
         self.part
         :setPos(self.r_pos)
@@ -844,9 +725,11 @@ function jl3:setWeight(w)
     for i = 1, #self.active do self.active[i]:setWeight(w) end
 end
 
+
+
 function events.tick()
     isSableLoaded = client.isModLoaded("sable")
-    local bt = sin(client.getSystemTime() * 0.001 * jl3.settings.breatheSpeed)
+    local bt = sin((getst()/1000) * jl3.settings.breatheSpeed)
     
     if host:isHost() and versionFuture and versionFuture:isDone() then
         local success, response = pcall(function()
@@ -883,36 +766,30 @@ function events.tick()
         leanScale = 1.0
     end
 
-    offset = vanilla_model.HEAD:getOffsetRot() or vec3(0, 0, 0)
+    offset = vanilla_model.HEAD:getOffsetRot() or base
 
     raw = vec3(
-        wrap(headRot.x),
-        wrap(headRot.y),
-        wrap(headRot.z)
+        wrapAngle(headRot.x),
+        wrapAngle(headRot.y),
+        wrapAngle(headRot.z)
     ) + offset
 
-    raw_Y = wrap(headRot.y)
-
-    l_rY = lerp(l_rY, raw_Y, 1)
+    raw_Y = wrapAngle(headRot.y)
 
     targetVel = math.max(0.3, 1.0 - (speed * 0.16))
     swayMult = clamp(1.0 - (speed * 0.16), 0, 1)
 
-    -- Turn lean
     local settings = jl3.settings
     local dir = player:getLookDir()
     local cross = -((dir.x * vel.z) - (dir.z * vel.x))
     local dis = turnLean - cross
     turnLean = turnLean - settings.turnLeanStiff * dis
     if settings.useBreathing then
-        breathe = lerp(
-        breathe,
-        vec3(
+        breathe = vec3(
             bt * settings.breatheX,
             abs(bt) * settings.breatheY,
             abs(cos(bt)) * settings.breatheZ
-        ) * settings.breatheStrength,
-        0.75)
+        ) * settings.breatheStrength
     else
         breathe = base
     end
@@ -921,7 +798,11 @@ function events.tick()
     end
 end
 
-function events.render(dt)
+function events.render(delta)
+    local newst = getst()
+    math.dt = (newst - st) * 0.001
+    st = newst
+    local dt = math.dt
     for i = 1, #jl3.active do
         jl3.active[i]:render(dt)
     end

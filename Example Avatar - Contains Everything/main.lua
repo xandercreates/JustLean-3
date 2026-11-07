@@ -11,6 +11,7 @@ local rightleg = root.RightLeg
 local JustLean3 = require("just-lean-3") --var can be any name
 local jl3settings = JustLean3.settings
 
+jl3settings.useBreathing = true
 
 local torso = JustLean3.lean:new(3, torsopart, 0.5, vec(0,12,0), true, {{-90,90},{-22.5,22.5}}, vec(0.95,0.5,1), true, false, "smooth", true) --Torso
 local head = JustLean3.head:new(3, model_head, 0.75, true, {{-90,90},{-45,45}}, vec(0.95, 0.95, 0.25), torso) --Head
