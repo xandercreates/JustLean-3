@@ -11,7 +11,7 @@
 ---@diagnostic disable: missing-fields
 ---@diagnostic disable: undefined-field
 
-local _VERSION = "3.2.0"
+local _VERSION = "3.2.1"
 
 ---- PATCH NOTES
 ---| (Hopefully) Fixed a bug that breaks parts after using :disable() and then :enable() - (https://discord.com/channels/1129805506354085959/1485784920696819874/1567775138605301892)
@@ -386,15 +386,9 @@ end
 
 function lean:render(dt)
     if self._settled then return end
-    if self.do_spring then
-        self.r_rot = self.rot
-        self.r_pivot = self.pivot
-        self.r_shimmy = self.shimmy
-    else
-        self.r_rot = expDecay(self.r_rot, self.rot, self.speed, dt)
-        self.r_pivot = expDecay(self.r_pivot, self.pivot, self.speed, dt)
-        self.r_shimmy = expDecay(self.r_shimmy, self.shimmy, self.speed, dt)
-    end
+    self.r_rot = expDecay(self.r_rot, self.rot, self.speed, dt)
+    self.r_pivot = expDecay(self.r_pivot, self.pivot, self.speed, dt)
+    self.r_shimmy = expDecay(self.r_shimmy, self.shimmy, self.speed, dt)
     if self.part then
         self.part:setPos(self.r_shimmy):setPivot(self.r_pivot):setOffsetRot(self.r_rot)
     end
@@ -814,7 +808,7 @@ function events.tick()
     end
 end
 
-function events.render(delta)
+function events.render()
     local newst = getst()
     math.dt = (newst - st) * 0.001
     st = newst

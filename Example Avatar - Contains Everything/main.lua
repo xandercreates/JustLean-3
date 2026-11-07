@@ -24,7 +24,7 @@ local torso = JustLean3.lean:new(
     {{-90,90},{-22.5,22.5}}, --{{xMin, xMax},{yMin, yMax}} , can be nil if Mode 1 is set
     vec(0.95,0.5,1), --Can either be a number or Vector3, can be nil if Mode 2 is set
     true, --controls if breathing should apply or not.
-    false, --controls if lean should be springy or not
+    true, --controls if lean should be springy or not
     false, --enable alongside with the legs so this does not look weird.
     false --if sway/shimmy should dampen like it does with lean's Y axis based on the X axis.
 )
