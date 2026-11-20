@@ -11,7 +11,7 @@
 ---@diagnostic disable: missing-fields
 ---@diagnostic disable: undefined-field
 
-local _VERSION = "3.2.1"
+local _VERSION = "3.2.2"
 
 ---- PATCH NOTES
 ---| (Hopefully) Fixed a bug that breaks parts after using :disable() and then :enable() - (https://discord.com/channels/1129805506354085959/1485784920696819874/1567775138605301892)
@@ -30,8 +30,6 @@ local _VERSION = "3.2.1"
 ---@class JustLean3.INSTANCE
 ---@class JustLean3.CONSTRUCTOR
 ---@class JustLean3.ACTIVE_INSTANCES
----@class JustLean3.TICK
----@class JustLean3.RENDER
 
 ---@class JustLean3
 ---@field lean JustLean3.CONSTRUCTOR
@@ -39,10 +37,8 @@ local _VERSION = "3.2.1"
 ---@field arms JustLean3.CONSTRUCTOR
 ---@field legs JustLean3.CONSTRUCTOR
 ---@field extras JustLean3.CONSTRUCTOR
-
----@type JustLean3
 local jl3 = {}
-jl3.__type = "JustLean3"
+
 
 ---@type JustLean3.ACTIVE_INSTANCES[]
 jl3.active = {}
@@ -102,9 +98,7 @@ function _optUpdates(state)
     end
 end
 
-local sin, cos, clamp, abs = math.sin, math.cos, math.clamp, math.abs
-local logar, exp, sqrt = math.log, math.exp, math.sqrt
-local map = math.map
+local sin, cos, clamp, abs, exp = math.sin, math.cos, math.clamp, math.abs, math.exp
 local vec3 = vectors.vec3
 local vHead = vanilla_model.HEAD
 local base = vec3(0, 0, 0)
@@ -151,7 +145,6 @@ local function spring(curr, tgt, vel, stiff, dampen)
     return curr + vel, vel
 end
 
-
 local MODE_STRENGTH = 1
 local MODE_CLAMPED = 2
 local MODE_BOTH = 3
@@ -164,8 +157,30 @@ jl3.arms = {}
 jl3.legs = {}
 jl3.extras = {}
 
-
----@class JL3Settings
+---@class JustLean3.Settings
+---@field breatheStrength number
+---@field breatheSpeed number
+---@field breatheX number
+---@field breatheY number
+---@field breatheZ number
+---@field turnLeanStiff number
+---@field turnLeanStrength number
+---@field turn_z number
+---@field leanDamping number
+---@field _zstr number
+---@field sneakLeanX number
+---@field sneakLeanY number
+---@field sneakLeanZ number
+---@field sway_str_x number
+---@field sway_str_y number
+---@field sway_str_z number
+---@field stop_shimmy boolean
+---@field useBreathing boolean
+---@field legBreatheX number
+---@field legBreatheY number
+---@field legBreatheZ number
+---@field legSwayR number
+---@field legSwayP number
 jl3.settings = {
     breatheStrength = 1.5,
     breatheSpeed = 1,
@@ -190,7 +205,6 @@ jl3.settings = {
     legBreatheZ = 0.5,       -- breathing Z -> leg rotation
     legSwayR = 0.2,          -- yaw sway -> leg rotation R
     legSwayP = 0.05,         -- yaw sway -> leg rotation P
-    __type = "JL3Settings"
 }
 
 function jl3:getActiveTable()
@@ -199,7 +213,6 @@ end
 
 local api = {}
 api.__index = api
-api.__type = "JL_API"
 
 function api:remove()
     for i = #jl3.active, 1, -1 do
@@ -417,6 +430,7 @@ function jl3.head:new(mode, part, speed, enabled, constraints, strength, lean_ta
     self._r = base
     self.rot = base
     self.r_rot = base
+    self.target_rot = base
     self.speed = speed or 1
     self.constraints = constraints
     self.strength = strength
@@ -429,7 +443,7 @@ end
 function head:tick()
     if self:stepWeight() then return end
     if self.lean_ref then
-        self.lean = self.speed < self.lean_ref.speed and -self.lean_ref.r_rot or -self.lean_ref.rot
+        self.lean = self.speed < self.lean_ref.speed and -self.lean_ref.rot or -self.lean_ref.r_rot
     end
     if self.disabled then
         self.target_rot = base
@@ -537,13 +551,17 @@ end
 ---@param speed number
 ---@param enabled boolean
 ---@param strength number|Vector3
+---@param doshimmy boolean
+---@param damp_shimmy boolean
+---@param metapart? JustLean3.INSTANCE[]
 ---@return JustLean3.INSTANCE[]
-function jl3.legs:new(side, part, speed, enabled, strength, doshimmy, damp_shimmy)
+function jl3.legs:new(side, part, speed, enabled, strength, doshimmy, damp_shimmy, metapart)
     local self = setmetatable({}, legs)
     self.type = "LEG"
     self.id = leg_count + 1
     self.side = (side == "LEFT" or side == LEFT) and LEFT or RIGHT
     self.part = part
+    self.metapart = metapart and metapart or false
     self.speed = clamp(speed, 0, 1)
     self.enabled = enabled
     self.disabled = not enabled
@@ -568,14 +586,26 @@ function legs:tick()
     local s = jl3.settings
     local lsR = 0
     local lsP = 0
-    local lbx, lby, lbz = breathe.x * s.legBreatheX, breathe.y * s.legBreatheY, breathe.z * s.legBreatheZ
+    local lbx, lbz = breathe.x * s.legBreatheX, breathe.z * s.legBreatheZ
+    local y
+    local x
+    local distEulerX
+    if not self.metapart then
+        y = raw_Y
+        x = raw.x
+        distEulerX = 90
+    else
+        y = self.metapart.rot and self.metapart.rot.y or self.metapart.targetRot and self.metapart.targetRot.y or 0
+        x = self.metapart.rot and self.metapart.rot.x or self.metapart.targetRot and self.metapart.targetRot.x or 0
+        distEulerX = self.metapart.constraints and self.metapart.constraints[1][2] or 90
+    end
     if not self.disabled then
         local crX, crZ = 0, 0
         local calPosX, calPosZ = 0, 0
-        local x_damp = clamp(1 - abs(raw.x) / 90, 0, 1)
+        local x_damp = clamp(1 - abs(x) / distEulerX, 0, 1)
         local sX, sZ = self.strength.x, self.strength.z
-        local dY = raw_Y * x_damp
-        local smooth_lry = (raw_Y * (self.damp_shimmy and x_damp or 1)) * swayMult
+        local dY = y * x_damp
+        local smooth_lry = (y * (self.damp_shimmy and x_damp or 1)) * swayMult
         local stateMult = sneaking and 0.5 or 1.0
         if self.doshimmy and not s.stop_shimmy and not player:getVehicle() then
             lsR = (-smooth_lry * s.legSwayR) * stateMult
